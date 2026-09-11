@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Background rounded square -->
+  <rect width="64" height="64" rx="14" fill="#07090f"/>
+  <!-- Subtle gold gradient glow -->
+  <radialGradient id="glow" cx="50%" cy="30%" r="60%">
+    <stop offset="0%" stop-color="#d4a853" stop-opacity="0.25"/>
+    <stop offset="100%" stop-color="#07090f" stop-opacity="0"/>
+  </radialGradient>
+  <rect width="64" height="64" rx="14" fill="url(#glow)"/>
+  <!-- IM letters -->
+  <text x="32" y="38" font-family="Arial Black, sans-serif" font-size="22" font-weight="900" 
+        text-anchor="middle" fill="#d4a853" letter-spacing="-1">IM</text>
+  <!-- Gold underline -->
+  <rect x="14" y="43" width="36" height="2.5" rx="1.25" fill="#d4a853" opacity="0.7"/>
+  <!-- Small moon dot top-right -->
+  <circle cx="50" cy="14" r="5" fill="#d4a853" opacity="0.9"/>
+  <circle cx="53" cy="12" r="3.5" fill="#07090f"/>
+</svg>

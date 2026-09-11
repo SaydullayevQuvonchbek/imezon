@@ -1,0 +1,32 @@
+﻿# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# Database Backups & Dumps (Contains sensitive credentials & business data)
+backups/
+*.sql
+*.sql.gz
+
+# Claude & AI workspace outputs / archives
+Claude outputs/
+*.tar.gz
+*.zip
+*.rar
+
+# Development, tests and internal tools (kept separate from production deploy)
+tests/
+tools/
+FIFO-REJA.md
+
+# Runtime generated TTS audio cache
+uploads/tts/*.wav
+!uploads/tts/.htaccess
+
+# OS and Editor artifacts
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.log

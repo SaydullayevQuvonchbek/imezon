@@ -1,0 +1,284 @@
+/* ============================================================
+   IMezon — NHConfirm (self-contained component)
+   main.css ishlatmaydigan POS/KDS ekranlarida ham bir xil ko'rinadi.
+   Barcha selektorlar overlay ID bilan chegaralangan: sahifa stillari
+   komponent geometriyasini tasodifan bosib ketmaydi.
+   ============================================================ */
+
+#im-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(7, 10, 24, .68);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+#im-confirm-overlay.show {
+  display: flex;
+  animation: imConfirmOverlayIn .18s ease-out;
+}
+
+#im-confirm-overlay .im-confirm-dialog {
+  position: relative;
+  width: min(440px, 100%);
+  max-width: 440px;
+  max-height: min(90vh, 680px);
+  overflow: hidden;
+  color: var(--text, #1e1e2e);
+  background: var(--card, #fff);
+  border: 1px solid color-mix(in srgb, var(--border, #e0e3e8) 82%, transparent);
+  border-radius: 24px;
+  box-shadow: 0 28px 90px rgba(7, 10, 24, .34), 0 5px 20px rgba(7, 10, 24, .12);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  animation: imConfirmDialogIn .24s cubic-bezier(.22, 1, .36, 1);
+}
+
+#im-confirm-overlay .im-confirm-accent {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: var(--info, #2980b9);
+}
+
+#im-confirm-overlay .im-confirm-dialog[data-variant="warning"] .im-confirm-accent {
+  background: var(--warning, var(--warn, #f59e0b));
+}
+#im-confirm-overlay .im-confirm-dialog[data-variant="danger"] .im-confirm-accent {
+  background: var(--danger, #e74c3c);
+}
+#im-confirm-overlay .im-confirm-dialog[data-variant="success"] .im-confirm-accent {
+  background: var(--success, #27ae60);
+}
+
+#im-confirm-overlay .im-confirm-content {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 18px;
+  padding: 30px 28px 24px;
+}
+
+#im-confirm-overlay .im-confirm-icon-wrap {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--info, #2980b9) 12%, var(--card, #fff));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--info, #2980b9) 20%, transparent);
+}
+
+#im-confirm-overlay .im-confirm-dialog[data-variant="warning"] .im-confirm-icon-wrap {
+  background: color-mix(in srgb, var(--warning, var(--warn, #f59e0b)) 13%, var(--card, #fff));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning, var(--warn, #f59e0b)) 22%, transparent);
+}
+#im-confirm-overlay .im-confirm-dialog[data-variant="danger"] .im-confirm-icon-wrap {
+  background: color-mix(in srgb, var(--danger, #e74c3c) 12%, var(--card, #fff));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger, #e74c3c) 20%, transparent);
+}
+#im-confirm-overlay .im-confirm-dialog[data-variant="success"] .im-confirm-icon-wrap {
+  background: color-mix(in srgb, var(--success, #27ae60) 12%, var(--card, #fff));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--success, #27ae60) 20%, transparent);
+}
+
+#im-confirm-overlay .im-confirm-icon-wrap .bi {
+  position: static;
+  width: auto;
+  height: auto;
+  display: inline-block;
+  margin: 0;
+  padding: 0;
+  font-size: 26px;
+  line-height: 1;
+  transform: none;
+}
+
+#im-confirm-overlay .im-confirm-copy { min-width: 0; }
+
+#im-confirm-overlay .im-confirm-label {
+  display: block;
+  margin: 0 0 4px;
+  color: var(--muted, #6c757d);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+#im-confirm-overlay .im-confirm-copy h3 {
+  margin: 0 0 8px;
+  padding: 0;
+  color: var(--text, #1e1e2e);
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: -.015em;
+}
+
+#im-confirm-overlay .im-confirm-copy p {
+  margin: 0;
+  padding: 0;
+  color: var(--text-2, var(--text, #3d3d5c));
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+#im-confirm-overlay .im-confirm-copy #im-confirm-sub {
+  margin-top: 10px;
+  padding: 10px 12px;
+  color: var(--muted, #6c757d);
+  background: var(--bg, #f0f2f5);
+  border: 1px solid color-mix(in srgb, var(--border, #e0e3e8) 72%, transparent);
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+#im-confirm-overlay .im-confirm-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 16px 28px 24px;
+}
+
+#im-confirm-overlay .im-confirm-btn {
+  min-width: 0;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 0;
+  padding: 9px 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font: 700 13px/1.35 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  text-align: center;
+  text-decoration: none;
+  white-space: normal;
+  cursor: pointer;
+  transition: transform .16s ease, background .16s ease, border-color .16s ease, box-shadow .16s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#im-confirm-overlay .im-confirm-btn .bi {
+  position: static;
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1;
+  transform: none;
+}
+
+#im-confirm-overlay .im-confirm-btn:active { transform: scale(.975); }
+
+#im-confirm-overlay .im-btn-outline {
+  color: var(--text, #1e1e2e);
+  background: transparent;
+  border-color: var(--border, #e0e3e8);
+}
+#im-confirm-overlay .im-btn-outline:hover {
+  color: var(--text, #1e1e2e);
+  background: var(--bg, #f0f2f5);
+  border-color: color-mix(in srgb, var(--border, #e0e3e8) 68%, var(--text, #1e1e2e));
+}
+
+#im-confirm-overlay .im-btn-primary {
+  color: var(--primary, #1a1a2e);
+  background: var(--accent, #e2b96f);
+  border-color: var(--accent, #e2b96f);
+}
+#im-confirm-overlay .im-btn-primary:hover {
+  background: var(--accent-dark, var(--accent-d, #c9a055));
+  border-color: var(--accent-dark, var(--accent-d, #c9a055));
+}
+
+#im-confirm-overlay .im-btn-warning {
+  color: #fff;
+  background: var(--warning, var(--warn, #f59e0b));
+  border-color: var(--warning, var(--warn, #f59e0b));
+}
+#im-confirm-overlay .im-btn-danger {
+  color: #fff;
+  background: var(--danger, #e74c3c);
+  border-color: var(--danger, #e74c3c);
+}
+#im-confirm-overlay .im-btn-success {
+  color: #fff;
+  background: var(--success, #27ae60);
+  border-color: var(--success, #27ae60);
+}
+#im-confirm-overlay .im-btn-warning:hover,
+#im-confirm-overlay .im-btn-danger:hover,
+#im-confirm-overlay .im-btn-success:hover {
+  color: #fff;
+  filter: brightness(.92);
+}
+
+#im-confirm-overlay .im-confirm-btn:focus { outline: none; }
+#im-confirm-overlay .im-confirm-btn:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--info, #2980b9) 30%, transparent);
+  outline-offset: 2px;
+}
+#im-confirm-overlay .im-confirm-dialog[data-variant="warning"] .im-confirm-btn:focus-visible {
+  outline-color: color-mix(in srgb, var(--warning, var(--warn, #f59e0b)) 38%, transparent);
+}
+#im-confirm-overlay .im-confirm-dialog[data-variant="danger"] .im-confirm-btn:focus-visible {
+  outline-color: color-mix(in srgb, var(--danger, #e74c3c) 34%, transparent);
+}
+#im-confirm-overlay .im-confirm-dialog[data-variant="success"] .im-confirm-btn:focus-visible {
+  outline-color: color-mix(in srgb, var(--success, #27ae60) 34%, transparent);
+}
+
+@keyframes imConfirmOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes imConfirmDialogIn {
+  from { opacity: 0; transform: translateY(14px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 575.98px) {
+  #im-confirm-overlay {
+    align-items: flex-end;
+    padding: 12px;
+  }
+  #im-confirm-overlay .im-confirm-dialog {
+    width: 100%;
+    max-width: none;
+    border-radius: 22px;
+  }
+  #im-confirm-overlay .im-confirm-content {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 14px;
+    padding: 26px 20px 20px;
+  }
+  #im-confirm-overlay .im-confirm-icon-wrap {
+    width: 48px;
+    height: 48px;
+    border-radius: 15px;
+  }
+  #im-confirm-overlay .im-confirm-icon-wrap .bi { font-size: 22px; }
+  #im-confirm-overlay .im-confirm-copy h3 { font-size: 17px; }
+  #im-confirm-overlay .im-confirm-footer { padding: 12px 20px 20px; }
+}
+
+@media (max-width: 380px) {
+  #im-confirm-overlay .im-confirm-footer { grid-template-columns: 1fr; }
+  #im-confirm-overlay .im-confirm-btn { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #im-confirm-overlay,
+  #im-confirm-overlay .im-confirm-dialog { animation: none; }
+}

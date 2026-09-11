@@ -1,0 +1,36 @@
+# ============================================================
+#  uploads/ — faqat statik fayllar. Bu yerda HECH QACHON kod
+#  bajarilmasligi kerak.
+#
+#  Yuklash mantiqi kengaytmani oq ro'yxat bilan tekshiradi
+#  (sklad/ajax/mah-save.php), lekin u yagona himoya qatlami
+#  bo'lib qolmasin: bitta xato yoki kelajakdagi o'zgarish
+#  server ustidan nazoratni berib qo'ymasin.
+# ============================================================
+
+# PHP ni o'chirish — modul sifatida ishlaganda
+<IfModule mod_php7.c>
+    php_flag engine off
+</IfModule>
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+
+# Har qanday bajariladigan kengaytmani bloklash (CGI/FPM uchun ham)
+<FilesMatch "\.(php|php3|php4|php5|php7|php8|phtml|phar|pl|py|cgi|sh|asp|aspx|jsp)$">
+    Order allow,deny
+    Deny from all
+    Require all denied
+</FilesMatch>
+
+# Handler'lar orqali bajarilishning oldini olish
+RemoveHandler .php .phtml .php3 .php4 .php5 .php7 .php8
+RemoveType .php .phtml .php3 .php4 .php5 .php7 .php8
+AddType text/plain .php .phtml .phar
+
+Options -ExecCGI -Indexes
+
+# Brauzer fayl turini o'zi "taxmin qilib" bajarmasin
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+</IfModule>
