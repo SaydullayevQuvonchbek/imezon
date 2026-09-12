@@ -39,6 +39,16 @@ Qo'shimcha: [qayta-ishlash/](qayta-ishlash/) — retseptlar va ishlab
 chiqarish (admin/sklad kiradi), [print/](print/) — chek/smena chop
 etish shablon fayllari.
 
+## Baza va o'rnatish (Deploy)
+
+Yangi serverda bazani sozlash uchun loyiha ildizidagi [schema.sql](schema.sql) faylini MySQL bazangizga import qiling:
+
+```bash
+mysql -u foydalanuvchi -p baza_nomi < schema.sql
+```
+
+Ushbu fayl barcha 62 ta jadval strukturasini va boshlang'ich tizim ma'lumotlarini (standart sozlamalar, rollar, admin foydalanuvchi) o'z ichiga oladi.
+
 ## Muhit sozlamalari
 
 `.env` fayli ishlatilmaydi — muhit o'zgaruvchilari `getenv()` orqali

@@ -7,6 +7,7 @@
 backups/
 *.sql
 *.sql.gz
+!schema.sql
 
 # Claude & AI workspace outputs / archives
 Claude outputs/
