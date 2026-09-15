@@ -28,7 +28,7 @@ $kategoriyalar = $db->rows(
 <html lang="uz">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover">
 <title>Sotuvchi — IMezon</title>
 <link rel="stylesheet" href="<?= im_BASE ?>assets/css/bi.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -41,13 +41,17 @@ $kategoriyalar = $db->rows(
   --border:#e2e8f0;--success:#10b981;--danger:#ef4444;
   --hold:#7c3aed;--hold-light:#ede9fe;--warn:#f59e0b;
 }
-html,body{height:100%;overflow:hidden}
-body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direction:column}
+html,body{height:100%;overflow:hidden;overscroll-behavior-y:none}
+body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direction:column;height:100dvh}
+button,[onclick],.stol-card,.prod-card,.kat-btn,.zona-tab,.quick-card{-webkit-tap-highlight-color:transparent}
 
 /* ── Topbar ── */
 .topbar{
-  height:52px;background:var(--primary);display:flex;align-items:center;
-  padding:0 12px;gap:8px;flex-shrink:0;z-index:100;
+  min-height:52px;background:var(--primary);display:flex;align-items:center;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-left:calc(12px + env(safe-area-inset-left,0px));
+  padding-right:calc(12px + env(safe-area-inset-right,0px));
+  gap:8px;flex-shrink:0;z-index:100;
   box-shadow:0 2px 12px rgba(0,0,0,.25);
 }
 .topbar-logo{font-size:16px;font-weight:800;color:#fff;letter-spacing:.5px;flex-shrink:0}
@@ -55,8 +59,10 @@ body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direc
 .topbar-filial{
   background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);
   border-radius:6px;padding:3px 8px;font-size:11px;color:rgba(255,255,255,.8);
-  display:flex;align-items:center;gap:4px;flex-shrink:0;
+  display:flex;align-items:center;gap:4px;flex-shrink:1;min-width:0;
+  max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
+.topbar-filial i{flex-shrink:0}
 .topbar-right{margin-left:auto;display:flex;align-items:center;gap:6px;flex-shrink:0}
 .topbar-name{font-size:12px;color:rgba(255,255,255,.75);font-weight:500}
 .topbar-logout{
@@ -83,7 +89,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direc
 /* ══════════════════════════════════════════════════════════
    ZAL XARITASI
    ══════════════════════════════════════════════════════════ */
-#hall-view{flex:1;overflow-y:auto;background:var(--bg);display:flex;flex-direction:column}
+#hall-view{flex:1;overflow-y:auto;overscroll-behavior-y:contain;background:var(--bg);display:flex;flex-direction:column}
 .hall-toolbar{
   padding:12px 14px 4px;display:flex;align-items:center;gap:8px;flex-shrink:0;
 }
@@ -195,7 +201,10 @@ body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direc
   cursor:pointer;color:var(--text);font-size:15px;flex-shrink:0;
 }
 .back-hall-btn:hover{background:rgba(0,0,0,.1)}
-.order-stol-nomi{font-size:14px;font-weight:800;color:var(--text)}
+.order-stol-nomi{
+  font-size:14px;font-weight:800;color:var(--text);
+  min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .order-stol-badge{
   font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;
   background:var(--hold-light);color:var(--hold);
@@ -253,7 +262,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direc
 /* Mahsulotlar grid */
 .prod-grid{
   display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));
-  gap:8px;padding:10px;overflow-y:auto;flex:1;align-content:start;
+  gap:8px;padding:10px;overflow-y:auto;overscroll-behavior-y:contain;flex:1;align-content:start;
 }
 .prod-card{
   border:2px solid var(--border);border-radius:12px;
@@ -321,7 +330,10 @@ body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direc
    OCHILMAYDI — bu yerda jami ko'rinadi, ofitsant terishda davom etadi. */
 .mob-bar{
   display:none;position:fixed;left:0;right:0;bottom:0;z-index:150;
-  padding:9px 12px;background:var(--primary);
+  padding:9px calc(12px + env(safe-area-inset-right,0px))
+          calc(9px + env(safe-area-inset-bottom,0px))
+          calc(12px + env(safe-area-inset-left,0px));
+  background:var(--primary);
   align-items:center;gap:10px;
   box-shadow:0 -3px 16px rgba(0,0,0,.25);
 }
@@ -357,7 +369,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direc
 .clear-btn:hover{background:var(--danger);color:#fff}
 
 /* Cart body */
-.cart-body{flex:1;overflow-y:auto;padding:8px}
+.cart-body{flex:1;overflow-y:auto;overscroll-behavior-y:contain;padding:8px}
 .cart-empty{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   height:100%;color:var(--muted);gap:6px;
@@ -577,7 +589,8 @@ body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direc
   .prod-grid{
     grid-template-columns:repeat(auto-fill,minmax(110px,1fr));
     gap:6px;padding:8px;
-    padding-bottom:76px;   /* pastdagi savat paneli ustini yopmasin */
+    /* pastdagi savat paneli ustini yopmasin (notchli telefonlarda ham) */
+    padding-bottom:calc(76px + env(safe-area-inset-bottom,0px));
   }
   /* Pastki panel faqat savatda mahsulot bo'lsa ko'rinadi (JS boshqaradi) */
   .mob-bar.show{display:flex}
@@ -585,23 +598,62 @@ body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direc
   .kat-bar{padding:7px 8px;gap:5px}
   .kat-btn{padding:5px 10px;font-size:11px}
 
-  .cart-foot{padding:10px 12px}
+  /* To'liq ekranli savat paneli — tepasi notch, tagi home-indicator ostida qolmasin */
+  .cart-head{padding-top:calc(10px + env(safe-area-inset-top,0px))}
+  .cart-foot{padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px))}
   .total-val{font-size:18px}
 
+  /* Barmoq bilan bosish uchun qulay o'lcham (Apple HIG/Material tavsiyasi ~40-44px) */
+  .back-hall-btn{width:40px;height:40px;font-size:16px}
   .cart-close-btn{
     display:flex;
-    width:32px;height:32px;border-radius:50%;background:rgba(0,0,0,.08);
+    width:40px;height:40px;border-radius:50%;background:rgba(0,0,0,.08);
     border:none;cursor:pointer;align-items:center;justify-content:center;
     font-size:16px;color:var(--text);margin-right:4px;flex-shrink:0;
   }
 
   .btn-hold span{display:none}
 
+  /* iOS Safari qidiruv maydoniga bosganda avtomatik zoom qilmasligi uchun */
+  .search-input{font-size:16px}
+
   .stol-grid{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}
 }
 
 @media (min-width: 769px) {
   .cart-close-btn{display:none}
+}
+
+/* ── Juda tor ekranlar (kichik Android telefonlar, iPhone SE va h.k.) ── */
+@media (max-width: 380px) {
+  .topbar{gap:6px}
+  .topbar-logo{font-size:14px}
+  .topbar-filial{max-width:88px;padding:3px 6px;font-size:10px}
+  .olib-ketish-btn span{display:none}
+  .olib-ketish-btn{padding:6px 9px}
+
+  .quick-row{padding:7px 10px}
+  .hall-toolbar{padding:10px 10px 4px}
+  .stol-grid{grid-template-columns:repeat(auto-fill,minmax(86px,1fr));gap:7px;padding:6px 10px 18px}
+  .stol-card{padding:10px 6px;min-height:110px}
+
+  .prod-grid{grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:5px;padding:6px;padding-bottom:calc(72px + env(safe-area-inset-bottom,0px))}
+  .prod-info{padding:6px 6px}
+
+  #stol-order-picker-modal .im-modal-body{padding:12px}
+}
+
+/* ── Past bo'yli ekranlar (telefon landshaft rejimi) — vertikal joy tejash ── */
+@media (max-height: 430px) {
+  .topbar{min-height:40px}
+  .hall-toolbar{padding:6px 14px 2px}
+  .quick-row{padding:5px 14px}
+  .zona-tabs{padding:4px 14px 2px}
+  .order-subheader{padding:6px 12px}
+  .cart-foot{padding:6px 12px calc(6px + env(safe-area-inset-bottom,0px))}
+  .cnf-modal{max-height:94vh}
+  .cnf-body{padding:6px 16px}
+  .sent-modal{padding:20px 30px}
 }
 </style>
 </head>
@@ -660,8 +712,8 @@ body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direc
     <span class="order-stol-nomi" id="order-stol-nomi">—</span>
     <span class="order-stol-badge" id="order-stol-badge" style="display:none">tahrirlanmoqda</span>
     <button class="olib-ketish-btn" id="olib-ketish-btn" onclick="startTakeawayFromCurrent()"
-            style="margin-left:auto" title="Shu stolga alohida olib ketish buyurtmasi ochish">
-      <i class="bi bi-bag-plus-fill"></i> Yangi olib ketish
+            style="margin-left:auto;flex-shrink:0" title="Shu stolga alohida olib ketish buyurtmasi ochish">
+      <i class="bi bi-bag-plus-fill"></i> <span>Yangi olib ketish</span>
     </button>
   </div>
 
