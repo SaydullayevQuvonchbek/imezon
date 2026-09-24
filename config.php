@@ -364,66 +364,25 @@ function im_rezerv_bekor($db, $order_id, $filial_id) {
     // MUHIM: qatorning butun `soni` emas, HAQIQATDA band qilingan
     // `rezerv_soni` qaytariladi. Rezerv joriy etilishidan oldin yaratilgan
     // buyurtmalarda u 0 — ular uchun qaytariladigan narsa yo'q.
-    foreach ($db->rows("SELECT mahsulot_id, rezerv_soni FROM im_sotuvchi_order_item WHERE order_id=$order_id") as $it) {
+    // ORDER BY — im_rezerv ichidagi UPDATE im_filial_qoldiq qatorni qulflaydi;
+    // tartibsiz bo'lsa parallel bekor qilishlar deadlock berishi mumkin.
+    foreach ($db->rows("SELECT mahsulot_id, rezerv_soni FROM im_sotuvchi_order_item
+                        WHERE order_id=$order_id ORDER BY mahsulot_id") as $it) {
         im_rezerv($db, $filial_id, (int)$it['mahsulot_id'], -(float)$it['rezerv_soni']);
     }
     $db->q("UPDATE im_sotuvchi_order_item SET rezerv_soni=0 WHERE order_id=$order_id");
 }
 
-// ─── FILIAL QOLDIG'IDAN XOMASHYO YECHISH — ATOMAR ────────────
-// Retsept xomashyosi (ishlab chiqarish, oshpaz qabuli, qozon ochish)
-// bir necha joyda `im_filial_qoldiq.soni` dan yechiladi edi — har biri
-// alohida "avval SELECT, keyin UPDATE" yozgan. Bu tuzoq: ikki buyurtma
-// bir vaqtda kelsa (shashlik navbatida tez-tez) ikkalasi ham tekshiruvdan
-// o'tadi va qoldiq minusga tushadi. Bu yerda yetarlilik sharti UPDATE
-// ning O'ZIDA turadi (im_rezerv kabi) — InnoDB qatorni qulflaydi,
-// yutqazgan urinishga 0 qator qaytadi va Exception otiladi.
-//
-// Chaqiruvchi TRANZAKSIYA ichida bo'lishi shart (Exception → rollback).
-// Qaytaradi: yechilgan paytdagi kelish_narxi (tannarx hisobi uchun).
+// ─── FILIAL QOLDIG'IDAN XOMASHYO YECHISH — BEKOR QILINGAN ─────
+// Ilgari retsept xomashyosini shu yerdan yechardik. FIFO daftari
+// (fifo_lib.php) joriy etilgach barcha chaqiruvchilar im_fifo_take() ga
+// o'tdi va bu funksiya o'lik qoldi. Lekin u xavfli edi: qatlam bo'lmasa
+// FIFO'siz soni'ni ayirar, qatlam bo'lsa source_id=0 bilan yechardi
+// (keyin aniq qaytarib bo'lmaydi). Tasodifiy chaqiruv darhol ko'rinsin
+// deb nom saqlanadi, tana esa xato otadi. Bir necha hafta muammosiz
+// ishlagach butunlay olib tashlash mumkin.
 function im_filial_qoldiq_yech($db, $filial_id, $mahsulot_id, $soni, $nomi = null) {
-    $filial_id   = (int)$filial_id;
-    $mahsulot_id = (int)$mahsulot_id;
-    $soni        = round((float)$soni, 3);
-    if ($soni <= 0) return 0.0;
-
-    // FIFO integratsiyasi: agar mahsulot uchun FIFO qatlamlari mavjud bo'lsa, FIFO bo'yicha yechiladi
-    if (function_exists('im_fifo_take')) {
-        $has_layers = (float)$db->val(
-            "SELECT COALESCE(SUM(remaining_qty),0) FROM im_fifo_layers
-             WHERE location_id=$filial_id AND mahsulot_id=$mahsulot_id AND cancelled=0"
-        );
-        if ($has_layers > 0) {
-            $take = im_fifo_take($db, $filial_id, $mahsulot_id, $soni, 'yechish', 0);
-            return (float)($take['unit_cost'] ?? 0);
-        }
-    }
-
-    $narx = (float)$db->val(
-        "SELECT COALESCE(kelish_narxi,0) FROM im_filial_qoldiq
-         WHERE filial_id=$filial_id AND mahsulot_id=$mahsulot_id"
-    );
-
-    $db->q("UPDATE im_filial_qoldiq SET soni = soni - $soni
-            WHERE filial_id=$filial_id AND mahsulot_id=$mahsulot_id AND soni >= $soni");
-
-    if ($db->affected() < 1) {
-        if ($nomi === null || $nomi === '') {
-            $nomi = (string)$db->val("SELECT nomi FROM im_mahsulotlar WHERE id=$mahsulot_id") ?: "#$mahsulot_id";
-        }
-        $bor = (float)$db->val(
-            "SELECT COALESCE(soni,0) FROM im_filial_qoldiq
-             WHERE filial_id=$filial_id AND mahsulot_id=$mahsulot_id"
-        );
-        // DIQQAT: {$nomi} — jingalak qavs ATAYLAB. PHP qo'shtirnoqli satr
-        // ichida "$nomi»" ni parslaganda, "»" UTF-8 belgisining yuqori
-        // bayti (0xBB) ba'zan o'zgaruvchi nomining DAVOMI deb noto'g'ri
-        // qabul qilinadi ("Undefined variable: nomi»" ogohlantirishi va
-        // bo'sh «» chiqishi shu sabab edi). Jingalak qavs o'zgaruvchi
-        // chegarasini aniq belgilaydi.
-        throw new Exception("«{$nomi}» yetarli emas — kerak: $soni, mavjud: " . round($bor, 3));
-    }
-    return $narx;
+    throw new Exception('im_filial_qoldiq_yech() bekor qilingan — im_fifo_take($db, $loc, $mahsulot, $soni, $manba, $manba_id) ishlating');
 }
 
 // ─── SOTUV YAKUNIY HISOB-KITOBI — YAGONA MANBA ───────────────
@@ -638,7 +597,16 @@ class Cyber {
     public function q($sql) {
         $res = mysqli_query($this->link, $sql);
         if (!$res) error_log('[IMezon SQL] ' . mysqli_error($this->link) . ' | ' . substr($sql,0,200));
-        if (!$res && $this->transaction) throw new Exception('DB yozuvi bajarilmadi: ' . $this->error());
+        if (!$res && $this->transaction) {
+            // 1213 = deadlock (InnoDB tranzaksiyani o'zi qaytargan), 1205 = lock wait
+            // timeout (faqat so'rov qaytarilgan) — ikkalasida ham chaqiruvchining catch
+            // bloki rollback qiladi. Xom "Deadlock found" o'rniga tushunarli xabar.
+            $errno = mysqli_errno($this->link);
+            if ($errno === 1213 || $errno === 1205) {
+                throw new Exception('Tizim shu mahsulot ustida band edi (boshqa kassa/oshxona amali). Qaytadan bosing.');
+            }
+            throw new Exception('DB yozuvi bajarilmadi: ' . $this->error());
+        }
         return $res;
     }
 
@@ -715,16 +683,26 @@ function im_auto_maydalash_yetkaz($db, $filial_id, $chiqish_id, $kerak, $xodim_i
         throw new Exception('Avtomatik maydalash retsepti noto‘g‘ri');
     }
 
-    // Qo'lda maydalash bilan bir xil lock tartibi: avval kirish, keyin chiqish.
-    im_fifo_lock($db,$filial_id,$kirish_id);
-    im_fifo_lock($db,$filial_id,$chiqish_id);
-    $tayyor=(float)$db->val("SELECT COALESCE(soni,0) FROM im_filial_qoldiq WHERE filial_id=$filial_id AND mahsulot_id=$chiqish_id");
+    // Qulf tartibi — mahsulot id bo'yicha o'sib (butun loyihada bitta qoida:
+    // ishlab-save/order-qabul ham ORDER BY mahsulot_id). Aks holda kirish>chiqish
+    // bo'lgan retseptda parallel maydalash bilan deadlock ehtimoli bor edi.
+    foreach ([min($kirish_id,$chiqish_id), max($kirish_id,$chiqish_id)] as $lock_pid) {
+        im_fifo_lock($db,$filial_id,$lock_pid);
+    }
+    // FOR UPDATE — qatorlar yuqorida allaqachon qulflangan, lekin REPEATABLE READ
+    // da ODDIY o'qish tranzaksiyaning eski snapshotini qaytaradi. Qulflab o'qish
+    // esa doim joriy commit qilingan holatni beradi.
+    $tayyor_row=$db->row("SELECT COALESCE(soni,0) AS s FROM im_filial_qoldiq
+                          WHERE filial_id=$filial_id AND mahsulot_id=$chiqish_id FOR UPDATE");
+    $tayyor=(float)($tayyor_row['s'] ?? 0);
     if ($tayyor+0.000001 >= $kerak) return true;
 
     $yetishmaydi=$kerak-$tayyor;
     $marta=(int)ceil(($yetishmaydi-0.000001)/$chiqish_1);
     $kirish_kerak=round($marta*$kirish_1,3);
-    $kirish_mavjud=(float)$db->val("SELECT COALESCE(soni,0) FROM im_filial_qoldiq WHERE filial_id=$filial_id AND mahsulot_id=$kirish_id");
+    $kirish_row=$db->row("SELECT COALESCE(soni,0) AS s FROM im_filial_qoldiq
+                          WHERE filial_id=$filial_id AND mahsulot_id=$kirish_id FOR UPDATE");
+    $kirish_mavjud=(float)($kirish_row['s'] ?? 0);
     if ($marta<1 || $kirish_mavjud+0.000001<$kirish_kerak) {
         throw new Exception("«{$r['kirish_nomi']}» avtomatik maydalash uchun yetarli emas");
     }
@@ -770,4 +748,105 @@ function im_auto_maydalash_yetkaz($db, $filial_id, $chiqish_id, $kerak, $xodim_i
         throw new Exception('Maydalash tannarxi yozilmadi');
     }
     return true;
+}
+
+// ─── MAHSULOT QOLDIG'I QAYERLARDA BOR (FIFO qatlamlaridan) ───
+// Arxivlash/o'chirishdan oldingi tekshiruv. Ombor (location_id=0) va barcha
+// filiallar bo'yicha remaining_qty>0 qatlamlarni joy nomi bilan qaytaradi:
+//   ['Ombor: 12', 'Chilonzor filiali: 0.7']   — bo'sh massiv = qoldiq yo'q.
+function im_mahsulot_qoldiq_joylar($db, $mahsulot_id) {
+    $mahsulot_id = (int)$mahsulot_id;
+    if ($mahsulot_id <= 0) return [];
+    $rows = $db->rows(
+        "SELECT location_id, SUM(remaining_qty) AS q FROM im_fifo_layers
+         WHERE mahsulot_id=$mahsulot_id AND cancelled=0 AND remaining_qty>0
+         GROUP BY location_id HAVING q>0.0005 ORDER BY location_id"
+    );
+    $out = [];
+    foreach ($rows as $r) {
+        $loc = (int)$r['location_id'];
+        $joy = $loc === 0 ? 'Ombor'
+             : ((string)$db->val("SELECT nomi FROM im_filiallar WHERE id=$loc") ?: "Filial #$loc");
+        $out[] = $joy . ': ' . rtrim(rtrim(number_format((float)$r['q'], 3, '.', ''), '0'), '.');
+    }
+    return $out;
+}
+
+// ─── QULFLANADIGAN MAHSULOTLAR TO'PLAMI (deadlock tartibi) ───
+// Loyihada YAGONA qoida: bir tranzaksiya FIFO qulflarini mahsulot id
+// bo'yicha O'SISH tartibida oladi (im_fifo_lock ichida esa avval
+// im_filial_qoldiq qatori, keyin im_fifo_locks qatori).
+//
+// Checkout / order-save ilgari filialning BARCHA qoldiq qatorlarini
+// qulflardi — deadlock'dan himoya sifatida to'g'ri, lekin butun filialni
+// ketma-ketlashtirar edi (bitta kassa yopilmaguncha ofitsantlar buyurtma
+// saqlay olmasdi). Endi faqat haqiqatda tegiladigan mahsulotlar qulflanadi.
+//
+// To'plam = berilgan mahsulotlar
+//         + retsept_avto mahsulotning xomashyolari (sotuvda shular yechiladi)
+//         + avto-maydalash kirish mahsuloti (tayyor SKU yetmasa ishlatiladi).
+// Tranzaksiya ICHIDA chaqirilishi kerak — retseptlar shu tranzaksiyada o'qiladi.
+function im_qulf_mahsulotlari($db, $filial_id, array $mahsulot_ids) {
+    $filial_id = (int)$filial_id;
+    $kerak = [];
+    foreach ($mahsulot_ids as $mid) {
+        $mid = (int)$mid;
+        if ($mid > 0) $kerak[$mid] = true;
+    }
+    if (!$kerak) return [];
+
+    foreach (array_keys($kerak) as $mid) {
+        $tur = $db->row("SELECT COALESCE(retsept_avto,0) ra, COALESCE(qozon_rejim,0) qr
+                         FROM im_mahsulotlar WHERE id=$mid");
+        if (!$tur) continue;
+
+        // 1) retsept_avto — xomashyo sotuv paytida yechiladi
+        if ((int)$tur['ra'] === 1) {
+            // FOR UPDATE — sotuv-save tanasi ham aynan shunday tanlaydi. Oddiy
+            // o'qish snapshotdan kelib chiqib BOSHQA retseptni tanlashi va
+            // natijada qulflanmagan xomashyo ishlatilishi mumkin edi.
+            $rid_row = $db->row("SELECT id FROM im_retseptlar
+                                 WHERE mahsulot_id=$mid AND tur='ishlab_chiqarish' AND status=1
+                                 ORDER BY id DESC LIMIT 1 FOR UPDATE");
+            $rid = (int)($rid_row['id'] ?? 0);
+            if ($rid) {
+                foreach ($db->rows("SELECT DISTINCT mahsulot_id FROM im_retsept_items WHERE retsept_id=$rid") as $ri) {
+                    $x = (int)$ri['mahsulot_id'];
+                    if ($x > 0) $kerak[$x] = true;
+                }
+            }
+        }
+
+        // 2) avto-maydalash: kirish mahsuloti VA retseptning BARCHA chiqishlari.
+        //    im_auto_maydalash_yetkaz() har bir chiqish mahsulotiga
+        //    im_fifo_receive() qiladi (config.php: maydalash chiqish tsikli) —
+        //    ya'ni faqat savatdagi chiqishni qulflash yetarli emas. Masalan
+        //    "Non butun → Non yarim + Non chorak" retseptida yarimni sotgan
+        //    kassa chorakni ham qulflaydi; aks holda ikki kassa bir-birini
+        //    teskari tartibda kutib deadlock bo'lardi.
+        if ((int)$tur['qr'] !== 1 && $filial_id > 0 && function_exists('im_auto_maydalash_holati')) {
+            $auto = im_auto_maydalash_holati($db, $filial_id, $mid);
+            if ($auto && (int)$auto['kirish_id'] > 0) {
+                $kerak[(int)$auto['kirish_id']] = true;
+                $arid = (int)$auto['retsept_id'];
+                if ($arid) {
+                    foreach ($db->rows("SELECT DISTINCT mahsulot_id FROM im_retsept_items WHERE retsept_id=$arid") as $ro) {
+                        $x = (int)$ro['mahsulot_id'];
+                        if ($x > 0) $kerak[$x] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    $ids = array_keys($kerak);
+    sort($ids, SORT_NUMERIC);   // TARTIB — deadlock himoyasining o'zagi
+    return $ids;
+}
+
+// To'plamni o'sish tartibida qulflaydi (im_fifo_lock: qoldiq qatori → lock qatori).
+function im_qulfla_mahsulotlar($db, $filial_id, array $mahsulot_ids) {
+    foreach (im_qulf_mahsulotlari($db, $filial_id, $mahsulot_ids) as $pid) {
+        im_fifo_lock($db, (int)$filial_id, (int)$pid);
+    }
 }

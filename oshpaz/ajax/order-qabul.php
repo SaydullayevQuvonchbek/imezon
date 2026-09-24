@@ -56,6 +56,29 @@ if (empty($tayyorlanadigan)) {
     throw new Exception('Bu buyurtmada tayyorlanadigan yangi mahsulot yo\'q');
 }
 
+    // ── Barcha xomashyo qulflarini OLDINDAN, id o'sish tartibida olish ──
+    // Ko'p taomli buyurtmada har retsept o'z ichida tartiblangan, lekin
+    // retseptlar orasida emas (1-taom {5,10}, 2-taom {3,7}). Checkout esa
+    // qatorlarni id bo'yicha ketma-ket qulflaydi — 5 ni ushlab 3 ni so'rasak,
+    // aylana chiqadi. Birlashgan ro'yxatni oldindan o'sish tartibida qulflash
+    // aylanani yopadi; keyingi im_fifo_take() qayta-kirish tarzida o'tadi.
+    $xomashyo_ids = [];
+    foreach ($tayyorlanadigan as $it) {
+        if ((int)$it['qozon_rejim'] === 1) continue;
+        $mid_pre = (int)$it['mahsulot_id'];
+        $rid_pre = (int)$db->val(
+            "SELECT id FROM im_retseptlar WHERE mahsulot_id=$mid_pre AND tur='ishlab_chiqarish' AND status=1
+             ORDER BY id DESC LIMIT 1"
+        );
+        if (!$rid_pre) continue; // pastda aniq xato beriladi
+        foreach ($db->rows("SELECT DISTINCT mahsulot_id FROM im_retsept_items WHERE retsept_id=$rid_pre") as $ri) {
+            $xomashyo_ids[(int)$ri['mahsulot_id']] = true;
+        }
+    }
+    $xomashyo_ids = array_keys($xomashyo_ids);
+    sort($xomashyo_ids, SORT_NUMERIC);
+    foreach ($xomashyo_ids as $lock_pid) im_fifo_lock($db, $filial_id, $lock_pid);
+
     // ── Har bir item uchun retsept xomashyosini sarflash ───────
     foreach ($tayyorlanadigan as $it) {
         $mid   = (int)$it['mahsulot_id'];
@@ -76,12 +99,17 @@ if (empty($tayyorlanadigan)) {
             "SELECT id FROM im_retseptlar WHERE mahsulot_id=$mid AND tur='ishlab_chiqarish' AND status=1
              ORDER BY id DESC LIMIT 1"
         );
-        if ($retsept_id) {
-            im_retsept_xomashyo_sarflash(
-                $db, $retsept_id, $delta, $filial_id, $oshpaz_id,
-                "Buyurtma #{$id} — {$it['nomi']} ({$delta} dona) uchun oshpaz qabuli", (int)$it['item_id']
-            );
+        // Retseptsiz o'tkazib yuborilsa xomashyo yechilmaydi va kassa bu qatorni
+        // "FIFO tannarxi topilmadi" bilan sotolmaydi (sotuv-save.php). Shuning
+        // uchun jim o'tmaymiz — butun qabul rollback bo'ladi, oshpaz aniq sababni ko'radi.
+        if (!$retsept_id) {
+            throw new Exception("«{$it['nomi']}» uchun faol retsept yo'q — qabul qilib bo'lmaydi. "
+                . "Admin «Retseptlar» bo'limida retsept kiritishi kerak.");
         }
+        im_retsept_xomashyo_sarflash(
+            $db, $retsept_id, $delta, $filial_id, $oshpaz_id,
+            "Buyurtma #{$id} — {$it['nomi']} ({$delta} dona) uchun oshpaz qabuli", (int)$it['item_id']
+        );
     }
 
     // tayyorlandi_soni = soni → sotuvchi endi kamaytira olmaydi

@@ -2,6 +2,7 @@
 // Mahsulot POS qidirish: barcode yoki nom, narx + qoldiq + ulgurji
 require_once __DIR__ . '/../../ximoya.php';
 require_once __DIR__ . '/../../config.php';
+require_once __DIR__ . '/../../fifo_reports.php';
 im_rol_check(['kassir']);
 $db = new Cyber();
 
@@ -28,12 +29,7 @@ $rows = $db->rows(
             COALESCE(nu.ulgurji_narxi,0) AS ulg_narx,
             CASE WHEN COALESCE(m.retsept_avto,0)=1
                  THEN 9999 ELSE COALESCE(fq.soni,0) END AS qoldiq,
-            COALESCE(
-              fq.kelish_narxi,
-              (SELECT pi.kelish_narxi FROM im_partiya_items pi
-               WHERE pi.mahsulot_id=m.id AND pi.kelish_narxi>0
-               ORDER BY pi.id DESC LIMIT 1), 0
-            ) AS tannarx
+            " . im_fifo_report_unit_cost_sql((int)$filial_id, 'm.id') . " AS tannarx
      FROM im_mahsulotlar m
      LEFT JOIN im_kategoriyalar k ON k.id=m.kategoriya_id
      LEFT JOIN im_narxlar n ON n.mahsulot_id=m.id

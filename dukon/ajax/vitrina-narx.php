@@ -22,8 +22,14 @@ if (!$qoldiq) {
     im_json('error', 'Bu mahsulot sizning do\'koningizga tegishli emas yoki topilmadi');
 }
 
-// Tannarxni aniqlash
-$tannarx = (float)$db->val("SELECT MAX(kelish_narxi) FROM im_partiya_items WHERE mahsulot_id={$qoldiq['mahsulot_id']}");
+// Tannarx chegarasi: SHU filialda hozir turgan FIFO qatlamlarining eng yuqori
+// birlik narxi. Ilgari butun tarix bo'yicha MAX(im_partiya_items.kelish_narxi)
+// olinardi — joy va joriy qoldiqqa aloqasiz eski narx sotuvni bloklardi.
+$tannarx = (float)$db->val(
+    "SELECT COALESCE(MAX(unit_cost),0) FROM im_fifo_layers
+     WHERE mahsulot_id={$qoldiq['mahsulot_id']} AND location_id=" . (int)$filial_id . "
+       AND cancelled=0 AND remaining_qty>0"
+);
 if ($tannarx > 0 && $narx < $tannarx) {
     im_json('error', 'Sotuv narxi kirim narxidan (tannarxidan) past bo\'lishi aslo mumkin emas!');
 }

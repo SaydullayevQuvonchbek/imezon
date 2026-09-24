@@ -314,7 +314,11 @@ $page_title = 'Sklad Hisoboti';
     <div class="im-card-header" style="background:var(--primary);position:sticky;top:0;z-index:1">
       <i class="bi bi-box-seam-fill" style="color:var(--accent)"></i>
       <span class="im-card-title" style="color:#fff" id="pm-title">Partiya mahsulotlari</span>
-      <button class="im-btn im-btn-icon im-btn-ghost ms-auto" onclick="closePartiyaDetail()" style="color:#fff">
+      <button class="im-btn im-btn-danger im-btn-sm ms-auto" id="pm-bekor" style="display:none"
+              onclick="partiyaBekor()">
+        <i class="bi bi-x-octagon"></i> Qabulni bekor qilish
+      </button>
+      <button class="im-btn im-btn-icon im-btn-ghost" onclick="closePartiyaDetail()" style="color:#fff">
         <i class="bi bi-x-lg"></i>
       </button>
     </div>
@@ -340,6 +344,10 @@ async function openPartiyaDetail(id) {
     }
     var p = j.data.partiya, items = j.data.items;
     title.textContent = 'Partiya #' + id + (p.faktura ? ' — ' + p.faktura : '') + (p.ps_nomi ? ' (' + p.ps_nomi + ')' : '');
+    // Bekor qilish faqat YOPILGAN partiya uchun. Server yana bir bor tekshiradi:
+    // birorta qatlamdan sarflangan bo'lsa yoki qarz to'langan bo'lsa — rad etiladi.
+    PM_ID = id;
+    document.getElementById('pm-bekor').style.display = (p.holat === 'yopiq') ? '' : 'none';
 
     var html = '<div class="row g-2 mb-3 p-2" style="background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
     html += '<div class="col-md-3"><div class="text-muted fs-xs">Postavshik</div><div class="fw-semibold">' + (p.ps_nomi||'—') + '</div></div>';
@@ -385,6 +393,29 @@ async function openPartiyaDetail(id) {
 
 function closePartiyaDetail() {
   document.getElementById('partiya-modal').style.display = 'none';
+}
+
+var PM_ID = 0;
+async function partiyaBekor() {
+  if (!PM_ID) return;
+  var ok = await NHConfirm.show({
+    variant: 'danger',
+    title: 'Qabulni bekor qilish',
+    text: 'Partiya #' + PM_ID + ' qoldiqdan butunlay olib tashlanadi.',
+    sub: 'Faqat hech bir mahsuloti sarflanmagan va postavshikka to‘lov qilinmagan bo‘lsa mumkin. '
+       + 'Aks holda inventarizatsiya qiling.',
+    confirmText: 'Ha, bekor qilinsin',
+    btnIcon: 'bi-x-octagon'
+  });
+  if (!ok) return;
+  var res = await IMAjax.post(window.im_BASE + 'sklad/ajax/partiya-bekor.php', { id: PM_ID });
+  if (res.status === 'ok') {
+    NHToast.show(res.msg, 'success', 5000);
+    closePartiyaDetail();
+    setTimeout(function(){ location.reload(); }, 1000);
+  } else {
+    NHToast.show(res.msg || 'Xatolik', 'error', 8000);
+  }
 }
 
 document.getElementById('partiya-modal').addEventListener('click', function(e) {

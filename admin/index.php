@@ -34,6 +34,10 @@ $oy_foyda = $oy_sotuv - $oy_tannarx;
 // ko'rinadi — shu sabab AI Yordamchining raqami dashboarddan farq qilardi.
 $oy_maosh    = (float)$db->val("SELECT COALESCE(SUM(summa),0) FROM im_maosh_tarixi WHERE MONTH(sana)=MONTH(CURDATE()) AND YEAR(sana)=YEAR(CURDATE())");
 $oy_isrof    = (float)$db->val("SELECT COALESCE(SUM(qoldi_porsiya*yakuniy_tannarx),0) FROM im_osh_qozon WHERE holat='yopildi' AND qoldi_isrofmi=1 AND MONTH(sana)=MONTH(CURDATE()) AND YEAR(sana)=YEAR(CURDATE())");
+// Bekor qilingan buyurtmadagi pishirilgan taomlar (xomashyo sarflangan, sotuv yo'q)
+$oy_isrof   += im_fifo_report_kitchen_waste($db, date('Y-m-01 00:00:00'), date('Y-m-t 23:59:59'));
+// Sanoq (inventarizatsiya) sof kamomadi ham chiqim — FIFO'dan hisobdan chiqarilgan
+$oy_isrof   += im_fifo_report_inventar($db, date('Y-m-01 00:00:00'), date('Y-m-t 23:59:59'))['sof'];
 $oy_chiqim   = $oy_harajat + $oy_maosh + $oy_isrof;
 $sof_foyda   = $oy_foyda - $oy_chiqim;
 
@@ -52,6 +56,8 @@ $bug_tannarx -= (float)$bug_return['cost'];
 $bug_foyda = $bug_sotuv - $bug_tannarx;
 $bug_maosh   = (float)$db->val("SELECT COALESCE(SUM(summa),0) FROM im_maosh_tarixi WHERE sana=CURDATE()");
 $bug_isrof   = (float)$db->val("SELECT COALESCE(SUM(qoldi_porsiya*yakuniy_tannarx),0) FROM im_osh_qozon WHERE holat='yopildi' AND qoldi_isrofmi=1 AND sana=CURDATE()");
+$bug_isrof  += im_fifo_report_kitchen_waste($db, date('Y-m-d 00:00:00'), date('Y-m-d 23:59:59'));
+$bug_isrof  += im_fifo_report_inventar($db, date('Y-m-d 00:00:00'), date('Y-m-d 23:59:59'))['sof'];
 $bug_chiqim  = $bug_harajat + $bug_maosh + $bug_isrof;
 $bug_sof     = $bug_foyda - $bug_chiqim;
 

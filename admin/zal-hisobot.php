@@ -19,7 +19,7 @@ $db = new Cyber();
 $sale_cost = im_fifo_sale_unit_cost_sql('si');
 $return_cost = im_fifo_sale_unit_cost_sql('rsi');
 $return_revenue_sql = "(SELECT COALESCE(SUM(v.qaytarish_summa),0) FROM im_vozvratlar v WHERE v.sotuv_id=s.id)";
-$return_cost_sql = "(SELECT COALESCE(SUM(v.soni*CASE WHEN rsi.id IS NOT NULL THEN ($return_cost) ELSE COALESCE(v.tannarx,0) END),0)
+$return_cost_sql = "(SELECT COALESCE(SUM(v.soni*CASE WHEN rsi.id IS NOT NULL THEN ($return_cost) ELSE COALESCE(v.tannarx,0)/NULLIF(v.soni,0) END),0)
                      FROM im_vozvratlar v LEFT JOIN im_sotuv_items rsi ON rsi.id=v.sotuv_item_id WHERE v.sotuv_id=s.id)";
 
 // ── Filtrlar ──────────────────────────────────────────────

@@ -42,6 +42,29 @@ $order = $db->row(
 );
 if (!$order) throw new Exception('Faol buyurtma topilmadi');
 
+// ── QULF TARTIBI: order qatori (yuqorida) → MAHSULOTLAR ────────
+// To'plamga taomning o'zi VA uning TARIXIY xomashyolari kiradi:
+// im_retsept_xomashyo_qaytarish() → im_fifo_reverse() aynan o'sha paytdagi
+// harakatlar bo'yicha qatlamlarni qulflaydi (joriy retsept bo'yicha emas).
+// Diqqat: oshxona taomida oshpaz_kerak=1, ya'ni retsept_avto=0 (ular
+// mah-save.php da o'zaro istisno) — shuning uchun im_qulf_mahsulotlari()
+// bu yerda retseptni kengaytirmaydi va xomashyo ro'yxati QO'LDA yig'iladi.
+$item_id_pre = (int)$db->val(
+    "SELECT id FROM im_sotuvchi_order_item
+     WHERE order_id=$order_id AND mahsulot_id=$mahsulot_id AND COALESCE(set_id,0)=$set_id LIMIT 1"
+);
+$lock_ids = [$mahsulot_id];
+if ($item_id_pre) {
+    foreach ($db->rows(
+        "SELECT DISTINCT l.mahsulot_id FROM im_fifo_movements m
+         JOIN im_fifo_layers l ON l.id=m.layer_id
+         WHERE m.source='retsept' AND m.kind='take' AND m.source_id IN
+               (SELECT id FROM im_ishlab_chiqarish WHERE order_item_id=$item_id_pre)") as $h) {
+        $lock_ids[] = (int)$h['mahsulot_id'];
+    }
+}
+im_qulfla_mahsulotlar($db, $filial_id, $lock_ids);
+
 $item = $db->row(
     "SELECT i.id, i.soni, i.tayyorlandi_soni, i.olib_ketish_soni, i.rezerv_soni,
             m.nomi, m.sotuv_qadami, m.oshpaz_kerak, COALESCE(m.qozon_rejim,0) AS qozon_rejim

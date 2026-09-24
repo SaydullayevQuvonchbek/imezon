@@ -16,7 +16,9 @@ function im_retsept_xomashyo_sarflash($db, $retsept_id, $buyurtma_soni, $filial_
     if (!$r) throw new Exception('Retsept topilmadi');
     $base=(float)$r['chiqish_soni'];
     if ($base<=0) throw new Exception('Retsept chiqish miqdori noto‘g‘ri');
-    $items=$db->rows("SELECT mahsulot_id, SUM(soni) AS soni FROM im_retsept_items WHERE retsept_id=$retsept_id GROUP BY mahsulot_id ORDER BY mahsulot_id");
+    $items=$db->rows("SELECT ri.mahsulot_id, SUM(ri.soni) AS soni, m.nomi
+                      FROM im_retsept_items ri JOIN im_mahsulotlar m ON m.id=ri.mahsulot_id
+                      WHERE ri.retsept_id=$retsept_id GROUP BY ri.mahsulot_id, m.nomi ORDER BY ri.mahsulot_id");
     if (!$items) throw new Exception('Retsept bo‘sh');
     $runs=$qty/$base; $product=(int)$r['mahsulot_id'];
     $order=$order_item_id ? (int)$order_item_id : 'NULL';
@@ -27,7 +29,9 @@ function im_retsept_xomashyo_sarflash($db, $retsept_id, $buyurtma_soni, $filial_
     $total=0;
     foreach ($items as $it) {
         $need=round((float)$it['soni']*$runs,3);
-        if ($need<=0) throw new Exception('Xomashyo miqdori noto‘g‘ri');
+        // 3 kasrdan kichik qolgan qismni sarflab bo'lmaydi (FIFO miqdor aniqligi).
+        if ($need<=0) throw new Exception("«{$it['nomi']}» retseptdagi miqdori juda kichik "
+            . "({$it['soni']} × {$runs}) — 0.001 dan kam chiqdi. Retseptda birlikni maydaroq qiling.");
         $take=im_fifo_take($db,$filial_id,(int)$it['mahsulot_id'],$need,'retsept',$id);
         $total+=$take['cost'];
         im_ishlab_audit_item($db,$id,'kirish',(int)$it['mahsulot_id'],$need,$take['unit_cost']);
@@ -40,7 +44,8 @@ function im_retsept_xomashyo_sarflash($db, $retsept_id, $buyurtma_soni, $filial_
 function im_retsept_xomashyo_qaytarish($db, $retsept_id, $qaytariladigan_soni, $filial_id, $xodim_id, $izoh = '', $order_item_id = null) {
     $qty=(float)$qaytariladigan_soni; $filial_id=(int)$filial_id; $order=(int)$order_item_id;
     if (!is_finite($qty) || $qty<=0 || !$order) throw new Exception('Qaytarish uchun original buyurtma qatori kerak');
-    $audits=$db->rows("SELECT * FROM im_ishlab_chiqarish WHERE order_item_id=$order AND filial_id=$filial_id AND holat<>'bekor' AND chiqish_soni>returned_servings ORDER BY id DESC FOR UPDATE");
+    // Only 'bajarildi' rows are restorable; 'bekor' and 'isrof' (cancelled cooked order) are final.
+    $audits=$db->rows("SELECT * FROM im_ishlab_chiqarish WHERE order_item_id=$order AND filial_id=$filial_id AND holat='bajarildi' AND chiqish_soni>returned_servings ORDER BY id DESC FOR UPDATE");
     // No linked FIFO audit means no provable ingredients to restore (legacy/qozon).
     if (!$audits) return null;
     $available=0; foreach ($audits as $a) $available+=(float)$a['chiqish_soni']-(float)$a['returned_servings'];

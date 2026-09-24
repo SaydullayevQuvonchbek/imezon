@@ -358,8 +358,6 @@ try {
         );
         if (!$locked_table) throw new Exception('Buyurtma stoli topilmadi');
     }
-    // Available stock rows must be locked before any FIFO layer or source locks.
-    $db->rows("SELECT mahsulot_id FROM im_filial_qoldiq WHERE filial_id=$filial_id ORDER BY mahsulot_id FOR UPDATE");
     // Serialize checkout with kitchen/order updates and prevent paying an order twice.
     if ($order_id > 0) {
         $locked_order = $db->row("SELECT * FROM im_sotuvchi_order WHERE id=$order_id AND filial_id=$filial_id FOR UPDATE");
@@ -375,6 +373,18 @@ try {
             throw new Exception('Buyurtma allaqachon sotilgan');
         }
     }
+    // ── QULF TARTIBI (butun loyiha uchun yagona qoida) ──────────
+    //   1) im_stollar qatori  2) hujjat qatori (order / sotuv)
+    //   3) mahsulot qulflari (im_qulfla_mahsulotlar → id o'sishi bo'yicha)
+    // Mahsulot qulflari OXIRIDA olinadi: aks holda kassa mahsulotni ushlab
+    // order qatorini kutadi, oshxona esa order qatorini ushlab mahsulotni —
+    // aylana hosil bo'ladi (stolsiz "olib ketish" buyurtmalarida im_stollar
+    // mutexi ham yo'q). Qo'shimcha foyda: qulfdan KEYINGI oddiy o'qishlar
+    // REPEATABLE READ snapshotidan emas, joriy holatdan o'qiladi.
+    // Butun filial emas, faqat SHU chek tegadigan mahsulotlar: savat qatorlari
+    // + retsept_avto xomashyosi + avto-maydalash kirishi va chiqishlari.
+    im_qulfla_mahsulotlar($db, $filial_id, array_column($items_prepared, 'mah_id'));
+
     $mj_s   = $mijoz_id ?: 'NULL';
     $chek_s = mysqli_real_escape_string($link, $chek_nomer);
 
@@ -461,12 +471,16 @@ try {
                 ORDER BY id DESC LIMIT 1 FOR UPDATE");
             if (!$recipe || (float)$recipe['chiqish_soni'] <= 0) throw new Exception('Faol retsept yoki chiqish miqdori yo‘q');
             $recipe_id = (int)$recipe['id'];
-            $inputs = $db->rows("SELECT mahsulot_id, SUM(soni) AS soni FROM im_retsept_items
-                WHERE retsept_id=$recipe_id GROUP BY mahsulot_id ORDER BY mahsulot_id");
+            $inputs = $db->rows("SELECT ri.mahsulot_id, SUM(ri.soni) AS soni, m.nomi
+                FROM im_retsept_items ri JOIN im_mahsulotlar m ON m.id=ri.mahsulot_id
+                WHERE ri.retsept_id=$recipe_id GROUP BY ri.mahsulot_id, m.nomi ORDER BY ri.mahsulot_id");
             if (!$inputs) throw new Exception('Retsept tarkibi bo‘sh');
             foreach ($inputs as $ingredient) {
-                $qty = round((float)$ingredient['soni'] * $kerak / (float)$recipe['chiqish_soni'], 6);
-                if ($qty <= 0) throw new Exception('Retsept xomashyo miqdori noto‘g‘ri');
+                // FIFO miqdor aniqligi 3 kasr — shu yerda ham 3 kasrda yaxlitlaymiz,
+                // aks holda im_fifo_take ichida 0 ga aylanib tushunarsiz xato berardi.
+                $qty = round((float)$ingredient['soni'] * $kerak / (float)$recipe['chiqish_soni'], 3);
+                if ($qty <= 0) throw new Exception("«{$ingredient['nomi']}» xomashyo miqdori juda kichik "
+                    . "(0.001 dan kam). Retseptda birlikni maydaroq qiling.");
                 $take = im_fifo_take($db, $filial_id, (int)$ingredient['mahsulot_id'], $qty, 'sotuv', $sale_item_id);
                 if (!isset($take['total'])) throw new Exception('FIFO total API javobi yo‘q');
                 $cost_total += (float)$take['total'];

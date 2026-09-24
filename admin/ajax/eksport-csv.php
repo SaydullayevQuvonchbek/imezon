@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../ximoya.php';
 require_once __DIR__ . '/../../config.php';
+require_once __DIR__ . '/../../fifo_reports.php';
 im_rol_check(['admin']);
 $db = new Cyber();
 
@@ -157,11 +158,17 @@ switch ($type) {
     fputcsv($out, ['Nomi', 'Barcode', 'Kategoriya', 'Narx (so\'m)', 'Ulgurji narx',
                    'Ulgurji min', 'Sklad qoldig\'i', 'Birlik', 'Tannarx', 'Status'], ';');
     $rows = $db->rows(
-        "SELECT m.nomi, m.barcode, k.nomi AS kat, m.narx, m.ulg_narx, m.ulg_min,
+        "SELECT m.nomi, m.barcode, k.nomi AS kat,
+                COALESCE(n.sotish_narxi,0) AS narx,
+                COALESCE(nu.ulgurji_narxi,0) AS ulg_narx, COALESCE(nu.min_soni,0) AS ulg_min,
                 COALESCE((SELECT SUM(remaining_qty) FROM im_fifo_layers WHERE mahsulot_id=m.id AND location_id=0 AND cancelled=0 AND remaining_qty>0),0) AS qoldiq,
-                m.birlik, m.tannarx, m.status
+                m.birlik,
+                " . im_fifo_report_unit_cost_sql('0', 'm.id') . " AS tannarx,
+                m.status
          FROM im_mahsulotlar m
          LEFT JOIN im_kategoriyalar k ON k.id=m.kategoriya_id
+         LEFT JOIN im_narxlar n ON n.mahsulot_id=m.id
+         LEFT JOIN im_narx_ulgurji nu ON nu.mahsulot_id=m.id AND nu.aktiv=1
          ORDER BY k.nomi, m.nomi"
     );
     foreach ($rows as $r) {

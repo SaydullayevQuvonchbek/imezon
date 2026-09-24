@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../ximoya.php';
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../fifo_reports.php';
 im_rol_check(['admin', 'bosh_kassir']);
 $db = new Cyber();
 $sale_cost = im_fifo_sale_unit_cost_sql('si');
@@ -8,6 +9,10 @@ $sale_cost = im_fifo_sale_unit_cost_sql('si');
 // ── Filtrlar ──────────────────────────────────────────────────
 $dan       = $_GET['dan']      ?? date('Y-m-01');
 $gacha     = $_GET['gacha']    ?? date('Y-m-d');
+// Faqat YYYY-MM-DD — noto'g'ri format bo'lsa standart oraliqqa qaytamiz
+// (fifo_reports.php helperlari qat'iy sana formatini talab qiladi).
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', (string)$dan))   $dan   = date('Y-m-01');
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', (string)$gacha)) $gacha = date('Y-m-d');
 $filial_f  = (int)($_GET['filial_id'] ?? 0);
 $tur_f     = $_GET['tur']      ?? '';
 $dan_s     = mysqli_real_escape_string($link, $dan);
@@ -75,23 +80,20 @@ $inkasasiya_kirim  = (float)$db->val("SELECT COALESCE(SUM(summa_som),0) FROM im_
 $jami_kirim  = $kirim_sotuv + $kirim_nasiya; // $kirim_boshqa foyda hisobiga kirmaydi
 $jami_chiqim = $chiqim_harajat + $chiqim_vozvrat; // faqat operatsion chiqim (maoshsiz)
 
-// Tannarx (sotilgan mahsulotlar FIFO xarid narxi) — im_sotuv_items dan
-$tannarx_fwhere = "DATE(s.sana) BETWEEN '$dan_s' AND '$gacha_s'";
+// Tannarx (sotilgan mahsulotlar FIFO xarid narxi) — im_sotuv_items dan.
+// holat filtri boshqa hisobotlar (admin/index.php, sotuvlar.php) bilan bir xil.
+$tannarx_fwhere = "s.holat IN ('aktiv','qaytarilgan') AND DATE(s.sana) BETWEEN '$dan_s' AND '$gacha_s'";
 if ($filial_f) $tannarx_fwhere .= " AND s.filial_id=$filial_f";
 $tannarx = (float)$db->val(
     "SELECT COALESCE(SUM(($sale_cost) * si.soni), 0)
      FROM im_sotuv_items si
-     LEFT JOIN im_sotuvlar s ON s.id = si.sotuv_id
+     JOIN im_sotuvlar s ON s.id = si.sotuv_id
      WHERE $tannarx_fwhere"
 );
 
-$vozvrat_tannarx = (float)$db->val(
-    "SELECT COALESCE(SUM(($sale_cost) * v.soni), 0)
-     FROM im_vozvratlar v
-     JOIN im_sotuvlar s ON s.id = v.sotuv_id
-     JOIN im_sotuv_items si ON si.id = v.sotuv_item_id
-     WHERE $tannarx_fwhere"
-);
+// Vozvrat tannarxi — yagona helper (LEFT JOIN + eski yozuvlar uchun zaxira,
+// VOZVRAT sanasi bo'yicha). Ilgari INNER JOIN eski vozvratlarni tushirib qoldirardi.
+$vozvrat_tannarx = (float)im_fifo_report_returns($db, $dan_s, $gacha_s, $filial_f)['cost'];
 $tannarx -= $vozvrat_tannarx;
 
 // Yopilgan qozondagi haqiqiy isrof sotilgan mahsulot tannarxi emas, lekin
@@ -102,8 +104,19 @@ $qozon_isrofi = (float)$db->val(
      . ($filial_f ? " AND filial_id=$filial_f" : '')
 );
 
-// MAOSHSIZ Sof Foyda = Sotuv - Tannarx - Harajat - Vozvrat
-$maoshsiz_foyda = $jami_kirim - $tannarx - $jami_chiqim - $qozon_isrofi;
+// Bekor qilingan buyurtmadagi pishirilgan taomlar — oshxona isrofi
+// (xomashyo FIFO'dan yechilgan, sotuv bo'lmagan). fifo_reports.php.
+$oshxona_isrofi = im_fifo_report_kitchen_waste($db, "$dan_s 00:00:00", "$gacha_s 23:59:59", $filial_f);
+
+// Inventarizatsiya (sanoq) natijasi: kamomad — FIFO orqali hisobdan chiqarilgan
+// qoldiq (COGS'ga tushmaydi, shuning uchun alohida chegiriladi), ortiqcha — topilgan.
+$inventar      = im_fifo_report_inventar($db, "$dan_s 00:00:00", "$gacha_s 23:59:59", $filial_f);
+$inv_kamomad   = (float)$inventar['kamomad'];
+$inv_ortiqcha  = (float)$inventar['ortiqcha'];
+
+// MAOSHSIZ Sof Foyda = Sotuv - Tannarx - Harajat - Vozvrat - Isrof - Sof kamomad
+$maoshsiz_foyda = $jami_kirim - $tannarx - $jami_chiqim - $qozon_isrofi - $oshxona_isrofi
+                - (float)$inventar['sof'];
 
 // MAOSHLI Sof Foyda = Sotuv - Tannarx - Harajat - MAOSH - Vozvrat
 $sof_foyda = $maoshsiz_foyda - $chiqim_maosh;
@@ -363,7 +376,7 @@ $shortcuts = [
           <div>
             <div class="im-stat-label">Harajatlar</div>
             <div class="im-stat-value num" style="color:var(--danger)"><?= im_money($chiqim_harajat) ?> so'm</div>
-            <div class="text-muted fs-xs">Vozvrat: <?= im_money($chiqim_vozvrat) ?> · Qozon isrofi: <?= im_money($qozon_isrofi) ?></div>
+            <div class="text-muted fs-xs">Vozvrat: <?= im_money($chiqim_vozvrat) ?> · Qozon isrofi: <?= im_money($qozon_isrofi) ?> · Oshxona isrofi: <?= im_money($oshxona_isrofi) ?><?php if ($inv_kamomad > 0 || $inv_ortiqcha > 0): ?> · Sanoq kamomadi: <?= im_money($inv_kamomad) ?><?php if ($inv_ortiqcha > 0): ?> (ortiqcha: <?= im_money($inv_ortiqcha) ?>)<?php endif; ?><?php endif; ?></div>
           </div>
         </div>
       </div>

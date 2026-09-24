@@ -22,10 +22,8 @@ $r = $db->row("SELECT r.*, m.nomi AS mahsulot_nomi, m.birlik AS mahsulot_birlik
 if (!$r) im_json('error', 'Retsept topilmadi');
 if ($im_rol === 'oshpaz' && $r['tur'] !== 'maydalash') im_json('error', 'Ruxsat yo‘q');
 
-// Xomashyolar DOIM sklad_qoldi dan tekshiriladi
-$kirish_field  = 'sklad_qoldi';
-// Tayyor/chiqish mahsulot: filial bo'lsa dukon, aks holda sklad
-$chiqish_field = $filial_id ? 'dukon_qoldi' : 'sklad_qoldi';
+// Qoldiq DOIM FIFO qatlamlaridan (im_fifo_layers) o'qiladi: filial bo'lsa
+// im_filial_qoldiq.soni (mavjud = jismoniy - rezerv), aks holda ombor qatlamlari.
 $result        = [];
 $all_ok        = true;
 $chiqish_info  = null;
@@ -47,7 +45,7 @@ if ($r['tur'] === 'ishlab_chiqarish') {
                 "SELECT COALESCE(soni,0) FROM im_filial_qoldiq WHERE filial_id=$filial_id AND mahsulot_id=$mah_id"
             );
         } else {
-            // Sklad: im_partiya_items.sklad_qoldi dan tekshirish
+            // Ombor: FIFO qatlamlari (location_id=0)
             $mavjud = (float)$db->val(
                 "SELECT COALESCE(SUM(remaining_qty),0) FROM im_fifo_layers WHERE mahsulot_id=$mah_id AND location_id=0 AND cancelled=0 AND remaining_qty>0"
             );

@@ -30,6 +30,10 @@ $kategoriyalar = $db->rows(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,viewport-fit=cover">
 <title>Sotuvchi — IMezon</title>
+<!-- .im-overlay / .im-modal* / .im-btn qoidalari SHU FAYLDA. Ilgari
+     ulanmagani uchun "Stol buyurtmalari" modali display:none ololmay,
+     sahifaning pastida uslubsiz holda doim ko'rinib turardi. -->
+<link rel="stylesheet" href="<?= im_BASE ?>assets/css/main.css?v=<?= rawurlencode(im_VERSION) ?>">
 <link rel="stylesheet" href="<?= im_BASE ?>assets/css/bi.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -42,7 +46,10 @@ $kategoriyalar = $db->rows(
   --hold:#7c3aed;--hold-light:#ede9fe;--warn:#f59e0b;
 }
 html,body{height:100%;overflow:hidden;overscroll-behavior-y:none}
-body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direction:column;height:100dvh}
+/* min-height:0 — main.css dagi body{min-height:100vh} ni bekor qiladi:
+   mobil brauzerda 100vh > 100dvh, aks holda tag panel ekrandan chiqib ketardi. */
+body{font-family:'Inter',sans-serif;background:var(--bg);display:flex;flex-direction:column;
+     height:100dvh;min-height:0;font-size:16px;line-height:normal}
 button,[onclick],.stol-card,.prod-card,.kat-btn,.zona-tab,.quick-card{-webkit-tap-highlight-color:transparent}
 
 /* ── Topbar ── */
@@ -97,6 +104,9 @@ button,[onclick],.stol-card,.prod-card,.kat-btn,.zona-tab,.quick-card{-webkit-ta
 .hall-refresh{margin-left:auto;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px}
 .hall-refresh .dot{width:7px;height:7px;border-radius:99px;background:var(--success);animation:pulse 1.6s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+/* Aloqa uzilganda "jonli" yozuvi yolg'on bo'lib qolmasligi uchun */
+.hall-refresh.offline{color:var(--danger);font-weight:700}
+.hall-refresh .dot.off{background:var(--danger);animation:none}
 
 .quick-row{display:flex;gap:8px;padding:8px 14px;flex-shrink:0}
 .quick-card{
@@ -643,6 +653,26 @@ button,[onclick],.stol-card,.prod-card,.kat-btn,.zona-tab,.quick-card{-webkit-ta
   #stol-order-picker-modal .im-modal-body{padding:12px}
 }
 
+/* ── Kesmali (notch) ekranlar, landshaft rejimi ──────────────
+   .topbar va .mob-bar o'z insetini allaqachon hisobga oladi. Qolganlari
+   uchun insetni ILDIZ konteynerlarga beramiz — ichkaridagi paddinglar
+   tegilmaydi, shuning uchun tor ekran sozlamalari buzilmaydi. Aks holda
+   iPhone landshaftda birinchi ustundagi stollar va savat tugmalari
+   kesma ostida qolib, bosib bo'lmasdi. */
+@media (orientation: landscape) {
+  #hall-view,#order-view{
+    padding-left:env(safe-area-inset-left,0px);
+    padding-right:env(safe-area-inset-right,0px);
+  }
+}
+@media (orientation: landscape) and (max-width: 768px) {
+  /* Mobil savat paneli position:fixed — ota konteyner insetini olmaydi */
+  .right-panel{
+    padding-left:env(safe-area-inset-left,0px);
+    padding-right:env(safe-area-inset-right,0px);
+  }
+}
+
 /* ── Past bo'yli ekranlar (telefon landshaft rejimi) — vertikal joy tejash ── */
 @media (max-height: 430px) {
   .topbar{min-height:40px}
@@ -665,7 +695,7 @@ button,[onclick],.stol-card,.prod-card,.kat-btn,.zona-tab,.quick-card{-webkit-ta
   <div class="topbar-filial"><i class="bi bi-building"></i> <?= im_f($filial_nomi) ?></div>
 
   <!-- Mobile: savat ochish tugmasi (faqat buyurtma ekranida foydali) -->
-  <button class="cart-toggle-btn" id="cart-toggle-btn" onclick="openCartPanel()">
+  <button class="cart-toggle-btn" id="cart-toggle-btn" onclick="openCartPanel()" style="display:none">
     <i class="bi bi-cart3"></i>
     <span class="badge" id="cart-toggle-badge" style="display:none">0</span>
   </button>
@@ -871,7 +901,11 @@ button,[onclick],.stol-card,.prod-card,.kat-btn,.zona-tab,.quick-card{-webkit-ta
 <script>
 'use strict';
 const im_BASE = '<?= im_BASE ?>';
-const RASM_BASE = '<?= im_BASE ?>uploads/products/';
+// im_mahsulotlar.rasm ustuni "uploads/products/xxx.jpg" ko'rinishida
+// SAQLANADI (sklad/ajax/mah-save.php), shuning uchun bu yerda faqat sayt
+// ildizi qo'shiladi. Ilgari yo'l ikki marta qo'shilib ketib, ofitsant
+// panelida BIRORTA mahsulot rasmi ochilmasdi.
+const RASM_BASE = '<?= im_BASE ?>';
 
 // ══════════════════════════════════════════════════════════
 //  STATE
@@ -882,7 +916,6 @@ const RASM_BASE = '<?= im_BASE ?>uploads/products/';
 let currentOrder = null;   // { order_id, stol_id, mijoz_ism, cart:{} } yoki null (zal ekranida)
 let orderDirty   = false;  // Oxirgi saqlashdan beri o'zgarish bo'ldimi
 let allProducts = [], activeKat = 0;
-let hallTimer = null;
 
 // Zona filtri — oxirgi yuklangan stollar/zonalar + tanlangan tab
 let hallStollar = [], hallZonalar = [];
@@ -890,6 +923,70 @@ let hallActiveZona = 'all';
 try { hallActiveZona = localStorage.getItem('im_sotuvchi_hall_zona') || 'all'; } catch {}
 
 function fmt(n)   { return Math.round(n).toLocaleString('uz-UZ'); }
+
+// Savat qatori uchun ruxsat etilgan ENG KATTA miqdor.
+// im_filial_qoldiq.soni = MAVJUD qoldiq (jismoniy − band qilingan), ya'ni
+// shu buyurtmaning O'Z rezervi undan allaqachon ayrilgan. Shuning uchun
+// chegara = mavjud + shu qator band qilib turgan miqdor. Aks holda 7 ta
+// saqlangan qatorda "+" bosilsa miqdor 3 taga tushib ketardi.
+function qtyCeil(it, qoldiq) {
+  const q = parseFloat(qoldiq !== undefined ? qoldiq : (it && it.qoldiq)) || 0;
+  const r = parseFloat((it && it.rezerv_soni) || 0) || 0;
+  return q + r;
+}
+
+// ── Tarmoq / sessiya holati ───────────────────────────────
+let netFail = 0, sessionDead = false;
+let liveHolat = null;
+function setLive(ok, matn) {
+  const el = document.querySelector('.hall-refresh');
+  if (!el) return;
+  const kalit = ok ? 'ok' : ('x' + (matn || ''));
+  if (liveHolat === kalit) return;   // har pollingda qayta chizilsa dot animatsiyasi uzilardi
+  liveHolat = kalit;
+  el.classList.toggle('offline', !ok);
+  el.innerHTML = ok ? '<span class="dot"></span> jonli'
+                    : '<span class="dot off"></span> ' + (matn || "aloqa yo'q");
+}
+function netUp()   { netFail = 0; if (!sessionDead) setLive(true); }
+function netDown() { if (++netFail >= 2) setLive(false); }
+// Sessiya tugaganda so'rov login.php ga yo'naltiriladi va JSON o'rniga HTML
+// qaytadi. Ilgari bu catch{} ichida yutilar, panel esa eski rasmni ko'rsatib
+// turaverardi — "Taom tayyor" qo'ng'irog'i ham butunlay jim bo'lib qolardi.
+function sessionLost() {
+  if (sessionDead) return;
+  sessionDead = true;
+  setLive(false, 'sessiya tugadi');
+  showToast('Sessiya tugadi — qaytadan kiring', 'error');
+  setTimeout(() => { location.href = im_BASE + 'login.php'; }, 2500);
+}
+// Sessiya tugagani FAQAT login.php ga yo'naltirish (yoki 401/403) bilan
+// bilinadi. 502/504 kabi vaqtinchalik HTML xatolar sessiya tugadi DEGANI EMAS:
+// ularda ham chiqarib yuborilsa, ofitsantning bir necha daqiqada terilgan
+// savati yo'qolardi. Shuning uchun ikkita alohida tekshiruv.
+function sessiyaTugadi(res) {
+  return res.redirected || res.status === 401 || res.status === 403
+      || /login\.php/i.test(res.url || '');
+}
+function jsonEmas(res) {
+  return !String(res.headers.get('content-type') || '').includes('json');
+}
+// Har bir YANGI (hali saqlanmagan) buyurtma uchun bir martalik kalit: tarmoq
+// uzilib qayta yuborilsa server ikkinchi order ochmaydi, borini tahrirlaydi.
+function newToken() {
+  return 'w' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+
+// Stol ochilgan paytdagi qatorlar "barmoq izi". Saqlashda serverga
+// yuboriladi: agar shu orasda BOSHQA qurilma (kassa POS yoki ikkinchi
+// ofitsant) qatorlarni o'zgartirgan bo'lsa, server yo'qotish bo'ladigan
+// yozuvni rad etadi. Buyurtma holati (oshpaz qabuli) o'zgarishi bu izga
+// ta'sir qilmaydi — ofitsant bekorga to'xtatilmaydi.
+function cartSig(cart) {
+  return Object.values(cart || {})
+    .map(i => (i.mahsulot_id|0) + ':' + (i.set_id|0) + ':' + (parseFloat(i.soni)||0).toFixed(3))
+    .sort().join('|');
+}
 function effN(it) {
   return (it.ulg_min > 0 && it.soni >= it.ulg_min && it.ulg_narx > 0) ? it.ulg_narx : it.narx;
 }
@@ -926,16 +1023,20 @@ function elapsed(mins) {
 }
 
 async function loadHall() {
+  if (sessionDead) return;
   try {
     const res = await fetch(im_BASE + 'sotuvchi/ajax/get-hall.php');
+    if (sessiyaTugadi(res)) { sessionLost(); return; }
+    if (jsonEmas(res))      { netDown();    return; }
     const d   = await res.json();
-    if (d.status !== 'ok') return;
+    if (d.status !== 'ok') { netDown(); return; }
     hallStollar = d.data.stollar || [];
     hallZonalar = d.data.zonalar || [];
     renderZonaTabs();
     renderHall(hallStollar);
     renderStolsiz(d.data.stolsiz || []);
-  } catch {}
+    netUp();
+  } catch { netDown(); }
 }
 
 // Zona tablari: "Hammasi" + stol bor zonalar (+ "Boshqa"). 1 tadan kam guruh — yashiriladi.
@@ -1003,7 +1104,8 @@ async function openStolsiz(orderId, nomi) {
     if (!found) { showToast('Buyurtma topilmadi, yangilanmoqda...', 'warn'); loadHall(); return; }
     // stol_id bo'sh — bu Dastavka (yoki eski stolsiz Olib ketish yozuvi)
     currentOrder = { order_id: found.order_id, stol_id: '', mijoz_ism: found.mijoz_ism,
-                     olib_ketish: !!found.olib_ketish, cart: found.cart || {} };
+                     olib_ketish: !!found.olib_ketish, cart: found.cart || {},
+                     base_sig: cartSig(found.cart || {}), client_token: newToken() };
   } catch { showToast("Yuklab bo'lmadi", 'error'); return; }
   orderDirty = false;
   enterOrderView(false);
@@ -1108,6 +1210,10 @@ function showHall() {
   document.getElementById('mob-bar')?.classList.remove('show');
   document.getElementById('order-view').classList.remove('visible');
   document.getElementById('hall-view').style.display = 'flex';
+  // Savat tugmasi #right-panel ni ochadi, u esa zal ekranida yashirin —
+  // shuning uchun bu yerda u umuman ko'rinmasligi kerak.
+  const ctb = document.getElementById('cart-toggle-btn');
+  if (ctb) ctb.style.display = 'none';
   closeCartPanel();
   loadHall();
 }
@@ -1138,10 +1244,13 @@ async function openTable(stolId, nomi, isBand, orderId) {
       if (!found) { showToast('Buyurtma topilmadi, yangilanmoqda...', 'warn'); loadHall(); return; }
       const cart = found.cart || {};
       if (!found.olib_ketish) Object.values(cart).forEach(i => { i.olib_ketish_soni = 0; });
-      currentOrder = { order_id: found.order_id, stol_id: stolId, mijoz_ism: found.mijoz_ism, olib_ketish: !!found.olib_ketish, cart };
+      currentOrder = { order_id: found.order_id, stol_id: stolId, mijoz_ism: found.mijoz_ism,
+                       olib_ketish: !!found.olib_ketish, cart,
+                       base_sig: cartSig(cart), client_token: newToken() };
     } catch { showToast('Yuklab bo\'lmadi', 'error'); return; }
   } else {
-    currentOrder = { order_id: 0, stol_id: stolId, mijoz_ism: nomi, olib_ketish: false, cart: {} };
+    currentOrder = { order_id: 0, stol_id: stolId, mijoz_ism: nomi, olib_ketish: false, cart: {},
+                     base_sig: '', client_token: newToken() };
   }
   orderDirty = false;
   enterOrderView(true);
@@ -1149,7 +1258,8 @@ async function openTable(stolId, nomi, isBand, orderId) {
 
 function openQuick(label) {
   // Alohida stolsiz buyurtma sifatida faqat Dastavka ochiladi.
-  currentOrder = { order_id: 0, stol_id: '', mijoz_ism: label, olib_ketish: false, cart: {} };
+  currentOrder = { order_id: 0, stol_id: '', mijoz_ism: label, olib_ketish: false, cart: {},
+                   base_sig: '', client_token: newToken() };
   orderDirty = false;
   enterOrderView(false);
 }
@@ -1160,7 +1270,8 @@ function startTakeawayOrder(stolId, nomi) {
     showToast("Avval joriy buyurtmani «Pauza» bilan saqlang", 'warn');
     return;
   }
-  currentOrder = { order_id:0, stol_id:stolId, mijoz_ism:nomi, olib_ketish:true, cart:{} };
+  currentOrder = { order_id:0, stol_id:stolId, mijoz_ism:nomi, olib_ketish:true, cart:{},
+                   base_sig:'', client_token:newToken() };
   orderDirty = false;
   enterOrderView(false);
 }
@@ -1185,6 +1296,8 @@ function renderOlibKetishBtn() {
 function enterOrderView(showOlibKetishBtn) {
   document.getElementById('hall-view').style.display = 'none';
   document.getElementById('order-view').classList.add('visible');
+  const ctb = document.getElementById('cart-toggle-btn');
+  if (ctb) ctb.style.display = '';   // CSS o'zi hal qiladi (mobil: flex)
   document.getElementById('order-stol-nomi').textContent = currentOrder.olib_ketish
     ? currentOrder.mijoz_ism + ' — Olib ketish' : currentOrder.mijoz_ism;
   const okBtn = document.getElementById('olib-ketish-btn');
@@ -1215,18 +1328,36 @@ async function holdCurrentCart() {
   if (cnf) { cnf.disabled = true; cnf.innerHTML = '<i class="bi bi-hourglass-split"></i> Saqlanmoqda...'; }
   const fd = new FormData();
   fd.append('action','hold'); fd.append('order_id',ac.order_id||0);
+  // client_token — takroriy yuborishdan himoya; base_sig — boshqa qurilma
+  // qatorlarni o'zgartirgan-o'zgartirmaganini server tekshirishi uchun.
+  fd.append('client_token', ac.client_token||''); fd.append('base_sig', ac.base_sig||'');
   fd.append('mijoz_ism',ac.mijoz_ism); fd.append('stol_id',ac.stol_id||''); fd.append('olib_ketish',ac.olib_ketish?1:0); fd.append('izoh','');
   fd.append('items',JSON.stringify(items.map(i=>({mahsulot_id:i.mahsulot_id,set_id:i.set_id||0,soni:i.soni,narx:effN(i),locked_soni:i.locked_soni||0,olib_ketish_soni:ac.olib_ketish?i.soni:0}))));
   try {
     const res = await fetch(im_BASE+'sotuvchi/ajax/order-save.php',{method:'POST',body:fd});
+    if (sessiyaTugadi(res)) { closeConfirm(); sessionLost(); return; }
+    if (jsonEmas(res)) {
+      // Server vaqtincha javob bermadi (502/504). Savat saqlanib qoladi,
+      // client_token o'zgarmagani uchun qayta bosish xavfsiz.
+      closeConfirm(); showToast("Server javob bermadi — qayta urinib ko'ring",'error');
+      btn.disabled=false; return;
+    }
     const d   = await res.json();
     if (d.status!=='ok') { closeConfirm(); showToast('❌ '+d.msg,'error'); btn.disabled=false; return; }
     closeConfirm();
     showToast('✅ '+d.msg,'success');
     orderDirty = false;
+    // Server bergan id ni eslab qolamiz; yangi "baza" — hozirgi savat.
+    if (d.data && d.data.order_id) ac.order_id = parseInt(d.data.order_id) || ac.order_id;
+    ac.base_sig = cartSig(ac.cart);
     snapshotOrder();   // saqlangan holat endi yangi "baza" bo'ladi
     showHall();
-  } catch { closeConfirm(); showToast('Tarmoq xatosi','error'); btn.disabled=false; }
+  } catch {
+    closeConfirm();
+    // client_token o'zgarmaydi — qayta bosilsa server ikkinchi order ochmaydi.
+    showToast("Tarmoq xatosi — qayta urinib ko'ring",'error');
+    btn.disabled=false;
+  }
 }
 
 // ── Yuborishdan oldingi tasdiqlash ────────────────────────
@@ -1334,10 +1465,17 @@ async function sendOrder() {
   btn.disabled=true; btn.innerHTML='<i class="bi bi-hourglass-split"></i> Yuborilmoqda...';
   const fd = new FormData();
   fd.append('action','create'); fd.append('order_id',ac.order_id||0);
+  fd.append('client_token', ac.client_token||''); fd.append('base_sig', ac.base_sig||'');
   fd.append('mijoz_ism',ac.mijoz_ism); fd.append('stol_id',ac.stol_id||''); fd.append('olib_ketish',ac.olib_ketish?1:0); fd.append('izoh','');
   fd.append('items',JSON.stringify(items.map(i=>({mahsulot_id:i.mahsulot_id,set_id:i.set_id||0,soni:i.soni,narx:effN(i),locked_soni:i.locked_soni||0,olib_ketish_soni:ac.olib_ketish?i.soni:0}))));
   try {
     const res = await fetch(im_BASE+'sotuvchi/ajax/order-save.php',{method:'POST',body:fd});
+    if (sessiyaTugadi(res)) { closeConfirm(); sessionLost(); return; }
+    if (jsonEmas(res)) {
+      closeConfirm(); showToast("Server javob bermadi — qayta urinib ko'ring",'error');
+      btn.disabled=false; btn.innerHTML='<i class="bi bi-send-fill"></i> Yuborish';
+      return;
+    }
     const d   = await res.json();
     if (d.status!=='ok') {
       // Xato — tasdiqlash oynasini yopamiz, sotuvchi savatni tuzatsin
@@ -1348,12 +1486,13 @@ async function sendOrder() {
     }
     orderDirty = false;
     closeConfirm();
+    if (d.data && d.data.order_id) ac.order_id = parseInt(d.data.order_id) || ac.order_id;
     const oid = d.data?.order_id||'';
     document.getElementById('sent-msg').textContent = `Order #${oid} — ${ac.mijoz_ism} — kassaga muvaffaqiyatli yuborildi`;
     document.getElementById('sent-overlay').classList.add('show');
   } catch {
     closeConfirm();
-    showToast('Tarmoq xatosi','error');
+    showToast("Tarmoq xatosi — qayta urinib ko'ring",'error');
     btn.disabled=false; btn.innerHTML='<i class="bi bi-send-fill"></i> Yuborish';
   }
 }
@@ -1389,14 +1528,15 @@ function toggleCart(pid, amount) {
   const baseQadam = qtyStep(p);
   const qadam = amount > 0 ? roundQty(amount) : baseQadam;
   if (ac.cart[k]) {
-    ac.cart[k].soni = Math.min(roundQty(ac.cart[k].soni + qadam), parseFloat(p.qoldiq));
+    ac.cart[k].soni = Math.min(roundQty(ac.cart[k].soni + qadam), qtyCeil(ac.cart[k], p.qoldiq));
     ac.cart[k].olib_ketish_soni = ac.olib_ketish ? ac.cart[k].soni : 0;
   } else {
     ac.cart[k] = {
       mahsulot_id:pid, set_id:null, set_nomi:null, _k:k,
       nomi:p.nomi, narx:parseFloat(p.narx),
       ulg_min:parseInt(p.ulg_min)||0, ulg_narx:parseFloat(p.ulg_narx)||0,
-      soni:qadam, birlik:p.birlik||'', sotuv_qadami:baseQadam, qoldiq:parseFloat(p.qoldiq), locked_soni:0,
+      soni:qadam, birlik:p.birlik||'', sotuv_qadami:baseQadam, qoldiq:parseFloat(p.qoldiq),
+      locked_soni:0, rezerv_soni:0,
       // Mustaqil Olib ketish orderida barcha miqdor qadoqlanadi.
       olib_ketish_soni: ac.olib_ketish ? qadam : 0
     };
@@ -1419,8 +1559,9 @@ function changeQty(k, delta) {
   it.soni = roundQty(it.soni + change);
   // Olib ketish alohida order: undagi barcha miqdor qadoqlanadi.
   it.olib_ketish_soni = ac.olib_ketish ? Math.max(0, it.soni) : 0;
+  const tepa = qtyCeil(it);
   if (it.soni<=0 && locked===0) delete ac.cart[k];
-  else if (it.soni>it.qoldiq) { it.soni=it.qoldiq; showToast("Qoldiq yetarli emas!",'warn'); }
+  else if (it.soni>tepa) { it.soni=tepa; showToast("Qoldiq yetarli emas!",'warn'); }
   orderDirty = true;
   refreshCart();
 }
@@ -1703,7 +1844,7 @@ function addSetToCart(setId) {
         nomi: it.nomi, narx: propNarx,
         ulg_min: 0, ulg_narx: 0,
         soni: it.soni, birlik: it.birlik || '', sotuv_qadami: parseFloat(it.sotuv_qadami)||1,
-        qoldiq: it.qoldiq || 9999, locked_soni: 0,
+        qoldiq: it.qoldiq || 9999, locked_soni: 0, rezerv_soni: 0,
         olib_ketish_soni: ac.olib_ketish ? it.soni : 0,
       };
     }
@@ -1813,10 +1954,13 @@ function tayyorBanner(list) {
 }
 
 async function checkTayyor() {
+  if (sessionDead) return;
   try {
     const res = await fetch(im_BASE + 'sotuvchi/ajax/get-tayyor.php');
+    if (sessiyaTugadi(res)) { sessionLost(); return; }
+    if (jsonEmas(res))      { netDown();    return; }
     const d   = await res.json();
-    if (d.status !== 'ok') return;
+    if (d.status !== 'ok') { netDown(); return; }
 
     const seen  = korilganlar();
     const faol  = new Set((d.tayyor || []).map(t => t.order_id));
@@ -1830,7 +1974,8 @@ async function checkTayyor() {
     // Ro'yxatdan chiqqanlarini unutamiz (keyingi safar qaytsa yana jiringlaydi)
     [...seen].forEach(id => { if (!faol.has(id)) seen.delete(id); });
     korilganSaqla(seen);
-  } catch {}
+    netUp();
+  } catch { netDown(); }
 }
 
 // ══════════════════════════════════════════════════════════

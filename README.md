@@ -8,8 +8,9 @@ sahifa o'zi to'liq: PHP (server logika) + HTML + inline JS bitta faylda.
 1. **[config.php](config.php)** — DB ulanish, muhit sozlamalari, va butun
    loyiha tayanadigan "yagona manba" funksiyalari: `im_rollar()` (rol
    ro'yxati), `im_tt_label()` (to'lov turi nomlari), `im_hall_stollar()`
-   (zal xaritasi), `im_rezerv()`/`im_filial_qoldiq_yech()` (ombordan
-   atomar yechish). Yangi konstanta yoki umumiy funksiya kerak bo'lsa —
+   (zal xaritasi), `im_rezerv()` (vitrinali mahsulotni band qilish).
+   Jismoniy qoldiq esa FAQAT [fifo_lib.php](fifo_lib.php) orqali
+   o'zgaradi (`im_fifo_receive/take/transfer/reverse`). Yangi konstanta yoki umumiy funksiya kerak bo'lsa —
    birinchi navbatda shu faylga qarang, boshqa joyda takrorlamang.
 2. **[ximoya.php](ximoya.php)** — auth guard. Har bir himoyalangan
    sahifa boshida `require_once __DIR__ . '/../ximoya.php'` bo'ladi.
@@ -76,9 +77,10 @@ Lokal (OSPanel) uchun standart holatning o'zi ishlaydi: baza nomi
   Alohida tekshiruv yozish shart emas.
 - **Ombordan yechish/band qilish atomar bo'lishi shart** — hech qachon
   "avval SELECT, keyin UPDATE" yozmang (poyga holati). `config.php`dagi
-  `im_rezerv()` yoki `im_filial_qoldiq_yech()`ni chaqiring (ular
-  `UPDATE ... WHERE soni>=$x` + `affected()` tekshiruvi orqali ishlaydi),
-  yoki bir nechta qatorni FIFO tartibida yechayotgan bo'lsangiz
+  `im_rezerv()` (band qilish) yoki `fifo_lib.php`dagi `im_fifo_take()`
+  (jismoniy yechish, tranzaksiya ichida) ni chaqiring — ular qatorni
+  qulflab, yetarlilikni UPDATE ichida tekshiradi. `im_filial_qoldiq_yech()`
+  BEKOR QILINGAN (chaqirilsa xato otadi). Agar o'zingiz FIFO tartibida yechayotgan bo'lsangiz
   `SELECT ... FOR UPDATE` bilan qulflang ([dukon/ajax/sotuv-save.php](dukon/ajax/sotuv-save.php)
   ga qarang).
 - **Rol tekshiruvi** — har bir sahifa/ajax endpoint boshida

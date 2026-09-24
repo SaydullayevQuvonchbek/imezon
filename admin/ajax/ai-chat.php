@@ -56,6 +56,45 @@ if ($suhbat_id !== '' && $soz['tarix'] > 0) {
     else    $suhbat_id = '';   // begona/o'chirilgan id — yangisini boshlaymiz
 }
 
+// ── Mavzu chegarasi: API'ga bormasdan rad etish ────────────
+// Tizim ko'rsatmasidagi "Doiran" bo'limi ham buni taqiqlaydi, lekin model
+// (ayniqsa arzon modellar) ba'zan ko'rsatmadan chetga chiqadi. Shuning uchun
+// ANIQ mavzudan tashqari so'rov (kod yozish, tarjima, she'r) shu yerda
+// to'xtatiladi: token sarflanmaydi va javob har doim bir xil bo'ladi.
+// Savol tarixga ham, jurnal (im_ai_log) ga ham odatdagidek yoziladi.
+if (im_ai_mavzudan_tashqari($savol)) {
+    $r = [
+        'ok'            => true,
+        'javob'         => im_ai_rad_matni(),
+        'xato'          => null,
+        'model'         => $model !== '' ? $model : $soz['model'],
+        'effort'        => $effort !== '' ? $effort : $soz['effort'],
+        'vositalar'     => [],
+        'natijalar'     => [],
+        'ogohlantirish' => [],
+        'tokens_in'     => 0,
+        'tokens_out'    => 0,
+        'ms'            => 0,
+    ];
+    im_ai_jurnal($db, $r, $savol, $im_user_id, $fil);
+    $suhbat_id = im_ai_suhbat_yoz($db, $suhbat_id, $im_user_id, $fil, $savol, $r);
+
+    echo json_encode([
+        'status'    => 'ok',
+        'javob'     => $r['javob'],
+        'vositalar' => [],
+        'natijalar' => [],
+        'ogoh'      => [],
+        'tokens'    => ['in' => 0, 'out' => 0],
+        'ms'        => 0,
+        'model'     => $r['model'],
+        'effort'    => $r['effort'],
+        'suhbat_id' => $suhbat_id,
+        'yangi'     => $yangi_edi,
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 // DIQQAT: $fil = 0 — "tanlanmagan" emas, "BARCHA filiallar". Shuning uchun
 // $im_filial_id ga tushib ketmaydi.
 $r = im_ai_agent($db, $savol, $tarix, [

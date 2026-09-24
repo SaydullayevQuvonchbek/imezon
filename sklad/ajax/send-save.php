@@ -50,15 +50,13 @@ try {
         if (!$item_id && !$hasLayerColumn) {
             throw new RuntimeException("FIFO logi uchun im_sklad_send.fifo_layer_id ustuni kerak");
         }
-        if ($item_id) {
-            // FIFO is authoritative; keep only its corresponding legacy batch in sync.
-            $db->q("UPDATE im_partiya_items
-                SET sklad_qoldi=sklad_qoldi-$qty, dukon_qoldi=dukon_qoldi+$qty
-                WHERE id=$item_id AND mahsulot_id=$mahsulot_id AND sklad_qoldi >= $qty");
-            if ($db->affected() !== 1) {
-                throw new RuntimeException("Partiya qoldig'i FIFO bilan mos emas");
-            }
-        }
+        // ESKI im_partiya_items.sklad_qoldi/dukon_qoldi ustunlari BU YERDA
+        // YANGILANMAYDI. Ular FIFO bilan baribir sinxron tura olmaydi: ombordagi
+        // ishlab chiqarish (im_fifo_take, location_id=0) va avto-maydalash ularga
+        // tegmaydi. Shu sababli oldingi "sklad_qoldi >= qty" sharti ba'zan
+        // haqiqiy jo'natishni "Partiya qoldig'i FIFO bilan mos emas" deb
+        // bloklashi mumkin edi. Yagona haqiqat manbai — im_fifo_layers;
+        // qabul paytida yozilgan ustunlar hujjat (audit) ma'lumoti bo'lib qoladi.
         $layerSet = $hasLayerColumn ? ", fifo_layer_id=$layer_id" : '';
         if ($allocated == 0.0) {
             $log_id = $send_id;
@@ -88,8 +86,10 @@ try {
         $db->q("UPDATE im_filial_qoldiq SET sotuv_narxi=$sotuv_n
             WHERE filial_id=$filial_id AND mahsulot_id=$mahsulot_id");
     }
-    $new_sklad = (float)im_fifo_balance($db, 0, $mahsulot_id)['qty'];
-    $new_filial_q = (float)im_fifo_balance($db, $filial_id, $mahsulot_id)['qty'];
+    // true — javobdagi raqamlar shu tranzaksiyadagi o'zgarishdan KEYINGI holatni
+    // ko'rsatishi kerak (oddiy o'qish eski snapshotni qaytarardi).
+    $new_sklad = (float)im_fifo_balance($db, 0, $mahsulot_id, true)['qty'];
+    $new_filial_q = (float)im_fifo_balance($db, $filial_id, $mahsulot_id, true)['qty'];
     $db->commit();
 
     im_json('ok', "{$mah['nomi']} — $soni dona «{$filial['nomi']}» ga jo'natildi!", [

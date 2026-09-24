@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../ximoya.php';
 require_once __DIR__ . '/../../config.php';
+require_once __DIR__ . '/../../fifo_reports.php';
 im_rol_check(['kassir']);
 $db = new Cyber();
 $sale_cost = im_fifo_sale_unit_cost_sql('si');
@@ -23,6 +24,7 @@ $filter_st = "kassir_id=$kassir_id AND filial_id=$filial_id
 
 // Filtri — JOIN bo'lgan querylarda (s. prefiksi bilan)
 $filter_s = "s.kassir_id=$kassir_id AND s.filial_id=$filial_id
+             AND s.holat IN ('aktiv','qaytarilgan')
              AND s.sana BETWEEN '$smena_start' AND '$smena_end'";
 
 // ── To'liq Smena hisoboti ────────────────────────────────
@@ -68,13 +70,10 @@ $inkasso_list = $db->rows(
      ORDER BY i.sana ASC"
 );
 
-// Vozvratlar — JOIN da s.sana
-$vozvrat_sum = (float)$db->val(
-    "SELECT COALESCE(SUM(v.qaytarish_summa),0)
-     FROM im_vozvratlar v
-     JOIN im_sotuvlar s ON s.id = v.sotuv_id
-     WHERE $filter_s"
-);
+// Vozvratlar — SHU kassir, VOZVRAT vaqti bo'yicha (v.sana). Tushum va tannarx
+// tomoni bitta so'rovdan — ikkalasi bir xil to'plamga tayanadi.
+$vozvrat_rep = im_fifo_report_returns_dt($db, $smena_start, $smena_end, $filial_id, false, $kassir_id);
+$vozvrat_sum = (float)$vozvrat_rep['revenue'];
 
 // Tannarx — JOIN da s.sana (sotilgan tovarlar tannarxi)
 $tannarx_jami = (float)$db->val(
@@ -84,14 +83,10 @@ $tannarx_jami = (float)$db->val(
      WHERE $filter_s"
 );
 
-// Qaytarilgan tovarlar tannarxi (zarar bo'lmasligi uchun chegirilishi shart)
-$vozvrat_tannarx = (float)$db->val(
-    "SELECT COALESCE(SUM(($sale_cost) * v.soni), 0)
-     FROM im_vozvratlar v
-     JOIN im_sotuvlar s ON s.id = v.sotuv_id
-     JOIN im_sotuv_items si ON si.id = v.sotuv_item_id
-     WHERE $filter_s"
-);
+// Qaytarilgan tovarlar tannarxi (zarar bo'lmasligi uchun chegirilishi shart).
+// VOZVRAT vaqti bo'yicha (kechagi sotuvning bugungi qaytarilishi shu smenaga
+// tushadi) va yagona helper orqali — eski (qatorsiz) vozvratlar ham hisobga olinadi.
+$vozvrat_tannarx = (float)$vozvrat_rep['cost'];
 
 // Toza tannarx
 $tannarx_jami -= $vozvrat_tannarx;
@@ -132,10 +127,18 @@ $sotuv_netto = (float)$stats['jami_summa'] - $vozvrat_sum;
 // yetkazib beruvchiga qo'lma-qo'l to'lov) ham ayirilishi shart, aks holda "kutilayotgan
 // naqd" haqiqiy tortmadagi puldan xarajat summasiga teng miqdorda ko'p ko'rsatiladi.
 $naqd_jami   = (float)$stats['naqd'] + (float)($smena['ochish_naqd'] ?? 0) + $nasiya_tolov_naqd - $usd_qaytim_jami - $harajat_naqd;
-$sof_foyda   = $sotuv_netto - $tannarx_jami - $harajat - $qozon_isrofi;
+// Shu smenada bekor qilingan buyurtmalardagi pishirilgan taomlar (oshxona isrofi).
+$oshxona_isrofi = im_fifo_report_kitchen_waste($db, $smena_start, $smena_end, $filial_id);
+$isrof_jami  = $qozon_isrofi + $oshxona_isrofi;
+$sof_foyda   = $sotuv_netto - $tannarx_jami - $harajat - $isrof_jami;
 
 // Smenani yopish
-$db->q("UPDATE im_smena SET holat='yopiq', yopish_naqd=$naqd_jami, yopildi=NOW() WHERE id=$smena_id");
+$tannarx_sql = number_format($tannarx_jami, 2, '.', '');
+$isrof_sql   = number_format($isrof_jami, 2, '.', '');
+$foyda_sql   = number_format($sof_foyda, 2, '.', '');
+$db->q("UPDATE im_smena SET holat='yopiq', yopish_naqd=$naqd_jami, yopildi=NOW(),
+            tannarx=$tannarx_sql, isrof=$isrof_sql, sof_foyda=$foyda_sql
+        WHERE id=$smena_id");
 
 im_json('ok', 'Smena muvaffaqiyatli yopildi!', [
     'smena_id'     => $smena_id,
@@ -150,6 +153,8 @@ im_json('ok', 'Smena muvaffaqiyatli yopildi!', [
     'chegirma'     => (float)$stats['chegirma'],
     'harajat'      => $harajat,
     'qozon_isrofi' => $qozon_isrofi,
+    'oshxona_isrofi' => $oshxona_isrofi,
+    'isrof_jami'   => $isrof_jami,
     'vozvrat'      => $vozvrat_sum,
     'tannarx'      => $tannarx_jami,
     'inkasso'      => $inkasso_jami,

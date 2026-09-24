@@ -18,7 +18,7 @@ $mahsulotlar = $db->rows(
 $retseptlar = $db->rows(
   "SELECT r.*, m.nomi AS mahsulot_nomi, m.birlik AS mahsulot_birlik,
             (SELECT COUNT(*) FROM im_retsept_items WHERE retsept_id=r.id) AS items_soni,
-            (SELECT COUNT(*) FROM im_ishlab_chiqarish WHERE retsept_id=r.id AND holat='bajarildi') AS ishlat_soni
+            (SELECT COUNT(*) FROM im_ishlab_chiqarish WHERE retsept_id=r.id AND holat IN ('bajarildi','isrof')) AS ishlat_soni
      FROM im_retseptlar r
      LEFT JOIN im_mahsulotlar m ON m.id = r.mahsulot_id
      ORDER BY r.tur, r.nomi"

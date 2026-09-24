@@ -37,6 +37,7 @@ foreach ($orders as $o) {
                 i.soni,
                 i.narx,
                 i.olib_ketish_soni,
+                i.rezerv_soni,
                 i.tayyorlandi_soni  AS locked_soni,
                 m.nomi,
                 m.birlik, m.sotuv_qadami,
@@ -70,8 +71,14 @@ foreach ($orders as $o) {
             '_k'          => $key,
             'nomi'        => $it['nomi'],
             'narx'        => (float)$it['narx'],
-            'ulg_min'     => (int)$it['ulg_min'],
-            'ulg_narx'    => (float)$it['ulg_narx'],
+            // Ulgurji narx FAQAT alohida (à la carte) qatorga tegishli.
+            // Set qatorining narxi set narxidan proporsional bo'linadi
+            // (addSetToCart ham ulg_min:0 qo'yadi) — bu yerda ham 0 bo'lmasa,
+            // stol qayta ochilganda ekranda ulgurji narx ko'rinib, server esa
+            // set narxini yozardi: mijozga aytilgan summa bilan chek mos
+            // kelmay qolardi.
+            'ulg_min'     => $set_id ? 0   : (int)$it['ulg_min'],
+            'ulg_narx'    => $set_id ? 0.0 : (float)$it['ulg_narx'],
             'soni'        => (float)$it['soni'],
             'birlik'      => $it['birlik'],
             'sotuv_qadami'=> max(0.001, (float)$it['sotuv_qadami']),
@@ -86,6 +93,12 @@ foreach ($orders as $o) {
             'tayyor_qoldiq'  => $auto ? (float)$auto['tayyor_qoldiq'] : (float)$it['qoldiq'],
             'auto_imkon'     => $auto ? (float)$auto['auto_imkon'] : 0,
             'locked_soni' => (float)$it['locked_soni'],
+            // Shu qator filial qoldig'idan band qilib turgan miqdor.
+            // fq.soni (yuqoridagi 'qoldiq') MAVJUD qoldiq — undan bu
+            // miqdor allaqachon ayrilgan. Klient tepa chegarani
+            // qoldiq + rezerv_soni deb hisoblaydi, aks holda saqlangan
+            // qatorda "+/-" bosilishi bilan miqdor tushib ketardi.
+            'rezerv_soni' => (float)$it['rezerv_soni'],
             'olib_ketish_soni' => (float)$it['olib_ketish_soni'],
         ];
     }

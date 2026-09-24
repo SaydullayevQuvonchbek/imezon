@@ -63,9 +63,22 @@ foreach ($items as $it) {
     else $satrlar[$mid] = ['mahsulot_id' => $mid, 'soni' => $soni, 'birlik' => $bir];
 }
 if (empty($satrlar)) im_json('error', 'Xomashyo miqdorlari noto\'g\'ri');
+// Qulf tartibi: xomashyo id bo'yicha o'sib (loyihaning yagona qoidasi) —
+// brauzerdan kelgan tartib ixtiyoriy, parallel amallar bilan deadlock bo'lmasin.
+ksort($satrlar, SORT_NUMERIC);
 
 $db->begin();
 try {
+    // ── QULF TARTIBI: xomashyolar VA tayyor mahsulot — id o'sishi bo'yicha,
+    // OLDINDAN. Pastda avval xomashyo yechiladi (im_fifo_take), eng oxirida
+    // tayyor mahsulot qatlami yaratiladi (im_fifo_receive) — agar tayyor
+    // mahsulot id'si xomashyonikidan kichik bo'lsa, tartib teskari bo'lardi.
+    $lock_ids = array_map('intval', array_keys($satrlar));
+    $lock_ids[] = (int)$mahsulot_id;
+    $lock_ids = array_values(array_unique($lock_ids));
+    sort($lock_ids, SORT_NUMERIC);
+    foreach ($lock_ids as $lid) im_fifo_lock($db, $filial_id, $lid);
+
     // Validate against FIFO; the actual take locks and checks stock again.
     foreach ($satrlar as $mid => $s) {
         $product = $db->row("SELECT nomi,birlik FROM im_mahsulotlar WHERE id=$mid AND status=1");
@@ -82,9 +95,8 @@ try {
     );
     if (!$qozon_id) throw new Exception('Qozon yozilmadi: ' . $db->error());
 
-    // 3. Xomashyoni yechish + narx muhrlash.
-    //    im_filial_qoldiq_yech() atomar — yetarlilik sharti UPDATE ning
-    //    O'ZIDA, yutqazgan urinishga Exception (butun qozon rollback).
+    // 3. Xomashyoni FIFO qatlamlaridan yechish + narx muhrlash.
+    //    im_fifo_take() qatlamlarni qulflaydi; yetmasa Exception (butun qozon rollback).
     $jami_summa = 0;
     foreach ($satrlar as $s) {
         $mid   = (int)$s['mahsulot_id'];

@@ -81,14 +81,19 @@ foreach ($db->rows(
 
 // Current physical inventory is exact. Layer balances alone cannot reconstruct
 // historical balances (transfers, production, waste and cancellations are missing).
-$hozir_qiymat = (float)$db->val("SELECT COALESCE(SUM(remaining_qty*unit_cost),0)
-    FROM im_fifo_layers WHERE cancelled=0 AND remaining_qty>0");
+// Bir xil to'plam admin/inventar.php bilan: faqat faol mahsulotlar, ombor + faol filiallar.
+// Aks holda dashboard bilan inventar sahifasi turli raqam ko'rsatardi.
+$hozir_qiymat = (float)$db->val("SELECT COALESCE(SUM(fl.remaining_qty*fl.unit_cost),0)
+    FROM im_fifo_layers fl
+    JOIN im_mahsulotlar m ON m.id=fl.mahsulot_id AND m.status=1
+    WHERE fl.cancelled=0 AND fl.remaining_qty>0
+      AND (fl.location_id=0 OR fl.location_id IN (SELECT id FROM im_filiallar WHERE status=1))");
 $ombor = array_fill(0, $N, null);
 $ombor[$N - 1] = round($hozir_qiymat, 2);
 
 $vfil = $filial_id > 0 ? " AND s.filial_id=$filial_id" : '';
 foreach ($db->rows("SELECT DATE(v.sana) k, SUM(v.qaytarish_summa) revenue,
-    SUM(v.soni*CASE WHEN rsi.id IS NOT NULL THEN ($return_cost) ELSE COALESCE(v.tannarx,0) END) cost FROM im_vozvratlar v
+    SUM(v.soni*CASE WHEN rsi.id IS NOT NULL THEN ($return_cost) ELSE COALESCE(v.tannarx,0)/NULLIF(v.soni,0) END) cost FROM im_vozvratlar v
     JOIN im_sotuvlar s ON s.id=v.sotuv_id
     LEFT JOIN im_sotuv_items rsi ON rsi.id=v.sotuv_item_id
     WHERE s.holat IN ('aktiv','qaytarilgan') AND v.sana >= '$dan_kun 00:00:00' $vfil

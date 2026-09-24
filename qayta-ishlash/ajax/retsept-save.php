@@ -79,6 +79,15 @@ try {
         $it_bir  = in_array($it['birlik'] ?? '', $birlik_ok) ? $it['birlik'] : 'dona';
         if (!$it_mah) continue;
         if ($it_soni <= 0) continue;
+        // FIFO daftari miqdorni 3 kasr bilan saqlaydi (im_fifo_number).
+        // 0.001 dan kichik miqdor sarflash paytida 0 ga aylanib, butun
+        // buyurtmani "Xomashyo miqdori noto‘g‘ri" bilan to'xtatib qo'yardi.
+        // Shuning uchun uni RETSEPT SAQLASHDA bloklaymiz.
+        if ($it_soni < 0.001) {
+            $it_nomi = (string)$db->val("SELECT nomi FROM im_mahsulotlar WHERE id=$it_mah");
+            throw new Exception("«" . ($it_nomi ?: "#$it_mah") . "» miqdori juda kichik ($it_soni). "
+                . "Eng kami 0.001. Birlikni maydaroq o'lchovga o'zgartiring (masalan kg → gramm).");
+        }
         if ($tur === 'maydalash' && $it_mah === $mahsulot_id) {
             throw new Exception('Asosiy mahsulot chiqish mahsuloti bo‘la olmaydi');
         }

@@ -75,7 +75,7 @@ $invoice_chegirma = max(0, $total_chegirma - $items_chegirma);
 $xizmat_jami = (float)($stats['xizmat'] ?? 0);
 $return_stat = $db->row(
   "SELECT COALESCE(SUM(v.qaytarish_summa),0) revenue,
-          COALESCE(SUM(v.soni*CASE WHEN rsi.id IS NOT NULL THEN ($return_cost) ELSE COALESCE(v.tannarx,0) END),0) cost
+          COALESCE(SUM(v.soni*CASE WHEN rsi.id IS NOT NULL THEN ($return_cost) ELSE COALESCE(v.tannarx,0)/NULLIF(v.soni,0) END),0) cost
    FROM im_vozvratlar v
    JOIN im_sotuvlar s ON s.id=v.sotuv_id
    LEFT JOIN im_sotuv_items rsi ON rsi.id=v.sotuv_item_id
@@ -109,7 +109,7 @@ $sotuvlar = $db->rows(
             COALESCE((SELECT SUM(si.chegirma_narxi * si.soni)
                       FROM im_sotuv_items si WHERE si.sotuv_id=s.id), 0) AS items_sotuv_jami,
             COALESCE((SELECT SUM(v.qaytarish_summa) FROM im_vozvratlar v WHERE v.sotuv_id=s.id),0) AS return_revenue,
-            COALESCE((SELECT SUM(v.soni*CASE WHEN rsi.id IS NOT NULL THEN ($return_cost) ELSE COALESCE(v.tannarx,0) END)
+            COALESCE((SELECT SUM(v.soni*CASE WHEN rsi.id IS NOT NULL THEN ($return_cost) ELSE COALESCE(v.tannarx,0)/NULLIF(v.soni,0) END)
                       FROM im_vozvratlar v LEFT JOIN im_sotuv_items rsi ON rsi.id=v.sotuv_item_id
                       WHERE v.sotuv_id=s.id),0) AS return_cost
      FROM im_sotuvlar s

@@ -4,6 +4,7 @@
 // ============================================================
 require_once __DIR__ . '/../ximoya.php';
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../fifo_reports.php';
 im_rol_check(['admin', 'sklad']);
 
 $db = new Cyber();
@@ -31,12 +32,7 @@ $mahsulotlar = $db->rows(
               (SELECT SUM(pi.remaining_qty) FROM im_fifo_layers pi WHERE pi.mahsulot_id=m.id AND pi.location_id=0 AND pi.cancelled=0 AND pi.remaining_qty>0),
               0
             ) AS sklad_qoldiq,
-            COALESCE(
-              (SELECT pi.kelish_narxi FROM im_partiya_items pi
-               WHERE pi.mahsulot_id=m.id
-               ORDER BY pi.id DESC LIMIT 1),
-              0
-            ) AS kelish_narx
+            " . im_fifo_report_unit_cost_sql('0', 'm.id') . " AS kelish_narx
      FROM im_mahsulotlar m
      LEFT JOIN im_kategoriyalar k ON k.id=m.kategoriya_id
      LEFT JOIN im_narxlar n ON n.mahsulot_id=m.id

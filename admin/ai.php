@@ -222,6 +222,10 @@ $namunalar = [
               <div style="font-size:13.5px;max-width:520px;margin:0 auto 22px">
                 Sotuv, xarajat, foyda, tannarx, qoldiq, xodimlar — savolni oddiy tilda yozing.
                 Javob bazadagi haqiqiy raqamlar asosida beriladi.
+                <div style="margin-top:6px;opacity:.75">
+                  Yordamchi faqat shu tizim va biznes savollariga javob beradi —
+                  umumiy mavzular (kod, tarjima, bilim savollari) uchun emas.
+                </div>
               </div>
               <div class="ai-chiplar" style="justify-content:center;max-width:760px;margin:0 auto">
                 <?php foreach ($namunalar as $n): ?>

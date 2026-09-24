@@ -18,16 +18,40 @@ function im_fifo_lock($db, $loc, $product) {
     if (!$db->inTransaction()) throw new Exception('FIFO amali tranzaksiya ichida bajarilishi kerak');
     $loc = (int)$loc; $product = (int)$product;
     if ($loc < 0 || $product <= 0) throw new Exception('FIFO: joy yoki mahsulot noto‘g‘ri');
-    // Global per-product/location serialization also protects an empty layer set.
-    im_fifo_exec($db, "INSERT IGNORE INTO im_fifo_locks VALUES ($loc,$product)");
-    $db->row("SELECT mahsulot_id FROM im_fifo_locks WHERE location_id=$loc AND mahsulot_id=$product FOR UPDATE");
+    // QULF TARTIBI MUHIM: avval im_filial_qoldiq qatori, keyin im_fifo_locks.
+    // Checkout (dukon/ajax/sotuv-save.php), buyurtma saqlash (sotuvchi/ajax/
+    // order-save.php) va vozvrat filialning BARCHA qoldiq qatorlarini birinchi
+    // qulflaydi. Oshxona qabuli / ishlab chiqarish / qozon esa to'g'ridan-to'g'ri
+    // shu funksiyaga kiradi. Agar bu yerda lock qatori birinchi olinsa, ikki
+    // tomon bir-birini kutib qoladi (InnoDB 1213 deadlock). Endi har qanday
+    // yo'l lock qatorini olishdan OLDIN filial qatorini olishi shart — aylana yo'q.
     if ($loc > 0) {
         im_fifo_exec($db, "INSERT IGNORE INTO im_filial_qoldiq (filial_id,mahsulot_id,soni) VALUES ($loc,$product,0)");
         $db->row("SELECT id FROM im_filial_qoldiq WHERE filial_id=$loc AND mahsulot_id=$product FOR UPDATE");
     }
+    // Global per-product/location serialization also protects an empty layer set.
+    im_fifo_exec($db, "INSERT IGNORE INTO im_fifo_locks VALUES ($loc,$product)");
+    $db->row("SELECT mahsulot_id FROM im_fifo_locks WHERE location_id=$loc AND mahsulot_id=$product FOR UPDATE");
 }
-function im_fifo_balance($db, $loc, $product) {
+// $lock=true — qatorlarni FOR UPDATE bilan o'qiydi. MUHIM: MariaDB standart
+// REPEATABLE READ rejimida ODDIY SELECT tranzaksiyaning BIRINCHI oddiy o'qishida
+// olingan snapshotni qaytaradi — qulf olingan bo'lsa ham eski qiymat chiqadi.
+// Yechim ustiga yozish (qatlamni o'zgartirish) uchun balans kerak bo'lsa,
+// albatta $lock=true bilan chaqiring (im_fifo_take ham shu sababdan
+// im_fifo_preview'ni FOR UPDATE bilan ishlatadi).
+function im_fifo_balance($db, $loc, $product, $lock = false) {
     $loc = (int)$loc; $product = (int)$product;
+    if ($lock) {
+        if (!$db->inTransaction()) throw new Exception('FIFO balansini qulflab o‘qish tranzaksiya ichida bo‘lishi kerak');
+        $qty = 0.0; $value = 0.0;
+        foreach ($db->rows("SELECT remaining_qty, unit_cost FROM im_fifo_layers
+                            WHERE location_id=$loc AND mahsulot_id=$product AND cancelled=0
+                            ORDER BY id FOR UPDATE") as $row) {
+            $qty   += (float)$row['remaining_qty'];
+            $value += (float)$row['remaining_qty'] * (float)$row['unit_cost'];
+        }
+        return ['qty' => $qty, 'value' => $value, 'unit_cost' => $qty > 0 ? $value / $qty : 0];
+    }
     $r = $db->row("SELECT COALESCE(SUM(remaining_qty),0) qty, COALESCE(SUM(remaining_qty*unit_cost),0) value FROM im_fifo_layers WHERE location_id=$loc AND mahsulot_id=$product AND cancelled=0");
     if (!$r) throw new Exception('FIFO sxemasi mavjud emas; migratsiyani bajaring');
     $r['qty'] = (float)$r['qty']; $r['value'] = (float)$r['value'];
@@ -36,7 +60,10 @@ function im_fifo_balance($db, $loc, $product) {
 }
 function im_fifo_cache_price($db, $loc, $product) {
     if ($loc <= 0) return;
-    $balance = im_fifo_balance($db, $loc, $product);
+    // Qulflab o'qish: bu qiymat im_filial_qoldiq.kelish_narxi ga YOZILADI.
+    // Oddiy o'qish REPEATABLE READ da tranzaksiya boshidagi snapshotni berib,
+    // keshga hozirgina o'zgartirilgan qatlamlardan oldingi narxni yozib qo'yardi.
+    $balance = im_fifo_balance($db, $loc, $product, true);
     $cost = im_fifo_number($balance['unit_cost'], 6);
     im_fifo_exec($db, "UPDATE im_filial_qoldiq SET kelish_narxi=$cost WHERE filial_id=$loc AND mahsulot_id=$product");
 }
@@ -59,6 +86,15 @@ function im_fifo_sale_unit_cost_sql($saleAlias = 'si') {
         LEFT JOIN im_osh_qozon q ON fl.source='qozon' AND q.id=fl.source_id
         WHERE fm.source='sotuv' AND fm.source_id=$saleAlias.id AND fm.kind='take'
     ), COALESCE($saleAlias.tannarx,0))";
+}
+// Fallback unit cost when a location has no layers left (inventory surplus of a
+// product that is currently at zero). Uses the newest known layer cost anywhere;
+// 0 only if the product was never received.
+function im_fifo_last_cost($db, $product) {
+    $product = (int)$product;
+    $v = $db->val("SELECT unit_cost FROM im_fifo_layers
+                   WHERE mahsulot_id=$product AND cancelled=0 ORDER BY id DESC LIMIT 1");
+    return $v === null ? 0.0 : (float)$v;
 }
 function im_fifo_receive($db, $loc, $product, $qty, $unitCost, $source, $sourceId, $partiyaItemId = null) {
     $loc = (int)$loc; $product = (int)$product; $sourceId = (int)$sourceId;

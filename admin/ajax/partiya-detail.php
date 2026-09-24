@@ -5,7 +5,7 @@
 // ============================================================
 require_once __DIR__ . '/../../ximoya.php';
 require_once __DIR__ . '/../../config.php';
-im_rol_check(['admin', 'bosh_kassir']);
+im_rol_check(['admin', 'bosh_kassir', 'sklad']);
 $db = new Cyber();
 
 $id = (int)($_GET['partiya_id'] ?? 0);
@@ -100,16 +100,20 @@ im_json('ok', '', [
         'tolov_turi'   => im_tt_label($partiya['tolov_turi']),
         'jami_summa'   => (float)$partiya['jami_summa'],
         'jami_fmt'     => im_money($partiya['jami_summa']),
-        'tolandi'      => (float)$partiya['tolandi'],
-        'tolandi_fmt'  => im_money($partiya['tolandi']),
-        'qarz_qoldi'   => (float)$partiya['qarz_qoldi'],
-        'qoldi_fmt'    => im_money($partiya['qarz_qoldi']),
+        'tolandi'      => $im_rol === 'sklad' ? null : (float)$partiya['tolandi'],
+        'tolandi_fmt'  => $im_rol === 'sklad' ? '—' : im_money($partiya['tolandi']),
+        'qarz_qoldi'   => $im_rol === 'sklad' ? null : (float)$partiya['qarz_qoldi'],
+        'qoldi_fmt'    => $im_rol === 'sklad' ? '—' : im_money($partiya['qarz_qoldi']),
         'holat'        => $partiya['holat'],
         'izoh'         => $partiya['izoh'] ?: '',
     ],
     'items'   => $item_list,
-    'tolovlar'=> $tolov_list,
-    'qarz'    => $qarz ? [
+    // Postavshik bilan hisob-kitob (to'lovlar tarixi, qarz qoldig'i) — moliyaviy
+    // ma'lumot. Sklad roli bu oynani faqat qabul TARKIBINI ko'rish va yopilgan
+    // qabulni bekor qilish uchun ochadi (sklad/hisobot.php), shuning uchun unga
+    // moliyaviy blok berilmaydi.
+    'tolovlar'=> $im_rol === 'sklad' ? [] : $tolov_list,
+    'qarz'    => ($qarz && $im_rol !== 'sklad') ? [
         'id'          => (int)$qarz['id'],
         'qarz_summa'  => (float)$qarz['qarz_summa'],
         'tolandi'     => (float)$qarz['tolandi'],

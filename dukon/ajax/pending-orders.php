@@ -41,6 +41,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'cance
         exit;
     }
     im_rezerv_bekor($db, $oid, $filial_id);
+    // Oshpaz allaqachon pishirgan taomlar: xomashyo FIFO'dan yechilgan holda
+    // qoladi (jismonan to'g'ri — ovqat tayyor bo'lgan), lekin unga sotuv
+    // bog'lanmaydi. Yorliqsiz qolsa bu tannarx na COGS'da, na isrofda
+    // ko'rinmasdi. Endi 'isrof' — balans/smena/dashboard uni oshxona isrofi
+    // sifatida chegiradi (fifo_reports.php: im_fifo_report_kitchen_waste).
+    $db->q("UPDATE im_ishlab_chiqarish ic
+            JOIN im_sotuvchi_order_item i ON i.id=ic.order_item_id
+            SET ic.holat='isrof', ic.isrof_vaqt=NOW()
+            WHERE i.order_id=$oid AND ic.filial_id=$filial_id AND ic.holat='bajarildi'");
     $db->q("UPDATE im_sotuvchi_order SET status='bekor', updated_at=NOW()
             WHERE id=$oid AND filial_id=$filial_id");
     if ($db->error()) {

@@ -31,3 +31,11 @@ desktop.ini
 .idea/
 .vscode/
 *.log
+
+# FIFO audit migratsiyalari — deploy uchun kerak, backup emas
+!migratsiya-*.sql
+
+# Ops skripti — serverda cron bilan ishlaydi, shuning uchun tools/ dan istisno
+!tools/
+tools/*
+!tools/fifo-check.php

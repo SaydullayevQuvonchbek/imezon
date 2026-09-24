@@ -20,6 +20,22 @@ $ulg_min     = (int)($_POST['ulg_min_soni'] ?? 0);
 $ulg_narx    = (float)($_POST['ulg_narx'] ?? 0);
 $sotiladi             = isset($_POST['sotiladi']) ? 1 : 0;
 $faqat_ishlab_chiqarish = isset($_POST['faqat_ishlab_chiqarish']) ? 1 : 0;
+// J3(c): oshxona taomi (oshpaz_kerak=1, qozon_rejim=0) uchun faol
+// ishlab-chiqarish retsepti bo'lishi SHART — aks holda oshpaz qabul qila
+// olmaydi va kassada chek yopilmaydi (sotuv-save.php: "FIFO tannarxi
+// topilmadi"). Bu yerda BLOKLAMAYMIZ (retsept keyin kiritilishi mumkin),
+// faqat javobga ogohlantirish qo'shamiz.
+function im_mah_retsept_ogoh($db, $mahsulot_id, $oshpaz_kerak, $qozon_rejim) {
+    if ((int)$oshpaz_kerak !== 1 || (int)$qozon_rejim === 1) return '';
+    $bor = $db->val("SELECT id FROM im_retseptlar
+                     WHERE mahsulot_id=" . (int)$mahsulot_id . "
+                       AND tur='ishlab_chiqarish' AND status=1 LIMIT 1");
+    if ($bor) return '';
+    return " ⚠️ Diqqat: bu oshxona taomi, lekin faol retsepti yo'q — "
+         . "«Qayta ishlash → Retseptlar» bo'limida retsept kiriting, aks holda "
+         . "buyurtmaga qo'shib bo'lmaydi.";
+}
+
 $oshpaz_kerak = isset($_POST['oshpaz_kerak']) ? 1 : 0;
 // Retsepti bor, oshpaz tasdig'i shart emas — xomashyo sotuvda yechiladi.
 // Oshpaz belgisi qo'yilgan bo'lsa bu belgi ma'nosiz (xomashyo ikki marta
@@ -157,7 +173,8 @@ if ($id > 0) {
             ['nomi'=>$nomi,'barcode'=>$barcode,'birlik'=>$birlik,'sotuv_qadami'=>$sotuv_qadami,'sotuv_narx'=>$sotuv_narx],
             "Mahsulot tahrirlandi"
         );
-        im_json('ok', 'Mahsulot yangilandi', ['id' => $id, 'barcode' => $barcode, 'rasm' => $rasm_path]);
+        im_json('ok', 'Mahsulot yangilandi' . im_mah_retsept_ogoh($db, $id, $oshpaz_kerak, $qozon_rejim),
+            ['id' => $id, 'barcode' => $barcode, 'rasm' => $rasm_path]);
 
     } catch (Exception $e) {
         $db->rollback();
@@ -197,7 +214,8 @@ if ($id > 0) {
             ['nomi'=>$nomi,'barcode'=>$barcode,'birlik'=>$birlik,'sotuv_qadami'=>$sotuv_qadami,'sotuv_narx'=>$sotuv_narx],
             "Yangi mahsulot yaratildi"
         );
-        im_json('ok', "Mahsulot qo'shildi", ['id' => $new_id, 'barcode' => $barcode, 'rasm' => $rasm_path]);
+        im_json('ok', "Mahsulot qo'shildi" . im_mah_retsept_ogoh($db, $new_id, $oshpaz_kerak, $qozon_rejim),
+            ['id' => $new_id, 'barcode' => $barcode, 'rasm' => $rasm_path]);
 
     } catch (Exception $e) {
         $db->rollback();

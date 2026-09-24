@@ -5,6 +5,7 @@
 // ============================================================
 require_once __DIR__ . '/../../ximoya.php';
 require_once __DIR__ . '/../../config.php';
+require_once __DIR__ . '/../../fifo_reports.php';
 im_rol_check(['kassir', 'admin', 'sotuvchi']);
 $db = new Cyber();
 
@@ -32,12 +33,7 @@ foreach ($setlar as $set) {
                 m.nomi, m.birlik, m.sotuv_qadami, m.oshpaz_kerak, m.retsept_avto,
                 COALESCE(fq.sotuv_narxi, n.sotish_narxi, 0) AS sotuv_narxi,
                 COALESCE(fq.soni, 0) AS qoldiq,
-                COALESCE(
-                  fq.kelish_narxi,
-                  (SELECT pi.kelish_narxi FROM im_partiya_items pi
-                   WHERE pi.mahsulot_id=m.id AND pi.kelish_narxi>0
-                   ORDER BY pi.id DESC LIMIT 1), 0
-                ) AS tannarx
+                " . im_fifo_report_unit_cost_sql((int)$filial_id, 'm.id') . " AS tannarx
          FROM im_set_items si
          JOIN im_mahsulotlar m ON m.id=si.mahsulot_id
          LEFT JOIN im_narxlar n ON n.mahsulot_id=m.id

@@ -26,9 +26,10 @@ $naqd_qaytariladigan = $summa; // default: hammasi naqd qaytariladi (nasiya bo'l
 $db->begin();
 try {
     if (!function_exists('im_fifo_reverse')) throw new Exception('FIFO engine yuklanmagan');
-    // Match checkout lock order: branch stock, sale header, exact sale item, layers.
-    $db->rows("SELECT mahsulot_id FROM im_filial_qoldiq WHERE filial_id=$im_filial_id ORDER BY mahsulot_id FOR UPDATE");
-    $candidate = $db->row("SELECT sotuv_id FROM im_sotuv_items WHERE id=$sotuv_item_id");
+    // ── QULF TARTIBI (loyiha qoidasi): hujjat qatorlari → MAHSULOTLAR.
+    // Qaysi sotuvga tegishli ekanini avval qulfsiz o'qiymiz (faqat id uchun),
+    // keyin hujjatni FOR UPDATE bilan qulflaymiz, eng oxirida mahsulotlarni.
+    $candidate = $db->row("SELECT sotuv_id, mahsulot_id FROM im_sotuv_items WHERE id=$sotuv_item_id");
     if (!$candidate) throw new Exception('Sotuv qatori topilmadi');
     $actual_sale_id = (int)$candidate['sotuv_id'];
     if ($sotuv_id > 0 && $sotuv_id !== $actual_sale_id) throw new Exception('Chek va qator mos emas');
@@ -38,6 +39,16 @@ try {
     $line = $db->row("SELECT * FROM im_sotuv_items WHERE id=$sotuv_item_id AND sotuv_id=$sotuv_id FOR UPDATE");
     if (!$line || ($mah_id > 0 && $mah_id !== (int)$line['mahsulot_id'])) throw new Exception('Mahsulot va sotuv qatori mos emas');
     $mah_id = (int)$line['mahsulot_id'];
+    // Retsept o'zgargan bo'lishi mumkin: im_fifo_reverse() TARIXIY harakatlarga
+    // qarab qatlamlarni qulflaydi, joriy retseptga emas. Shu sababli qulflar
+    // to'plamiga aynan o'sha tarixiy mahsulotlarni ham qo'shamiz.
+    $lock_ids = [$mah_id];
+    foreach ($db->rows("SELECT DISTINCT l.mahsulot_id FROM im_fifo_movements m
+                        JOIN im_fifo_layers l ON l.id=m.layer_id
+                        WHERE m.source='sotuv' AND m.source_id=$sotuv_item_id AND m.kind='take'") as $h) {
+        $lock_ids[] = (int)$h['mahsulot_id'];
+    }
+    im_qulfla_mahsulotlar($db, $im_filial_id, $lock_ids);
     $mode = $line['fifo_return_mode'] ?? null;
     if (!in_array($mode, ['stock', 'waste'], true)) {
         throw new Exception('Eski sotuv: qaytarish turi va asl FIFO manbasini tekshirish kerak');

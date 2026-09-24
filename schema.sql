@@ -192,6 +192,39 @@ CREATE TABLE IF NOT EXISTS `im_fifo_movements` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ------------------------------------------------------------
+-- Jadval: `im_inventarizatsiya` (sanoq / korrektirovka)
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS `im_inventarizatsiya_items`;
+DROP TABLE IF EXISTS `im_inventarizatsiya`;
+CREATE TABLE IF NOT EXISTS `im_inventarizatsiya` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `location_id` int(11) NOT NULL,
+  `xodim_id` int(11) DEFAULT NULL,
+  `sana` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `izoh` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ortiqcha_summa` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `kamomad_summa` decimal(15,2) NOT NULL DEFAULT '0.00',
+  PRIMARY KEY (`id`),
+  KEY `joy_sana` (`location_id`,`sana`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `im_inventarizatsiya_items` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `inv_id` int(11) NOT NULL,
+  `mahsulot_id` int(11) NOT NULL,
+  `hisob_soni` decimal(18,3) NOT NULL,
+  `real_soni` decimal(18,3) NOT NULL,
+  `farq` decimal(18,3) NOT NULL,
+  `birlik_narx` decimal(20,6) NOT NULL DEFAULT '0.000000',
+  `summa` decimal(15,2) NOT NULL DEFAULT '0.00',
+  PRIMARY KEY (`id`),
+  KEY `inv_id` (`inv_id`),
+  KEY `mahsulot_id` (`mahsulot_id`),
+  CONSTRAINT `im_inv_item_header` FOREIGN KEY (`inv_id`) REFERENCES `im_inventarizatsiya` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ------------------------------------------------------------
 -- Jadval: `im_filial_qoldiq`
 -- ------------------------------------------------------------
 DROP TABLE IF EXISTS `im_filial_qoldiq`;
@@ -285,7 +318,8 @@ CREATE TABLE IF NOT EXISTS `im_ishlab_chiqarish` (
   `izoh` text COLLATE utf8mb4_unicode_ci,
   `xodim_id` int(11) DEFAULT NULL,
   `sana` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-  `holat` enum('bajarildi','bekor') COLLATE utf8mb4_unicode_ci DEFAULT 'bajarildi',
+  `holat` enum('bajarildi','bekor','isrof') COLLATE utf8mb4_unicode_ci DEFAULT 'bajarildi',
+  `isrof_vaqt` datetime DEFAULT NULL,
   `order_item_id` int(11) DEFAULT NULL,
   `returned_servings` decimal(18,3) NOT NULL DEFAULT '0.000',
   PRIMARY KEY (`id`),
@@ -293,6 +327,7 @@ CREATE TABLE IF NOT EXISTS `im_ishlab_chiqarish` (
   KEY `mahsulot_id` (`mahsulot_id`),
   KEY `filial_id` (`filial_id`),
   KEY `sana` (`sana`),
+  KEY `idx_isrof` (`holat`,`isrof_vaqt`),
   CONSTRAINT `im_ishlab_chiqarish_ibfk_1` FOREIGN KEY (`retsept_id`) REFERENCES `im_retseptlar` (`id`),
   CONSTRAINT `im_ishlab_chiqarish_ibfk_2` FOREIGN KEY (`mahsulot_id`) REFERENCES `im_mahsulotlar` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -675,7 +710,7 @@ CREATE TABLE IF NOT EXISTS `im_partiyalar` (
   `usd_kurs` decimal(12,2) DEFAULT '0.00',
   `tolandi` decimal(15,2) DEFAULT '0.00',
   `qarz_qoldi` decimal(15,2) DEFAULT '0.00',
-  `holat` enum('ochiq','yopiq') COLLATE utf8mb4_unicode_ci DEFAULT 'ochiq',
+  `holat` enum('ochiq','yopiq','bekor') COLLATE utf8mb4_unicode_ci DEFAULT 'ochiq',
   `izoh` text COLLATE utf8mb4_unicode_ci,
   `xodim_id` int(11) DEFAULT NULL,
   `qabul_filial_id` int(11) DEFAULT '0',
@@ -874,6 +909,9 @@ CREATE TABLE IF NOT EXISTS `im_smena` (
   `kassir_id` int(11) NOT NULL,
   `ochish_naqd` decimal(15,2) DEFAULT '0.00',
   `yopish_naqd` decimal(15,2) DEFAULT NULL,
+  `tannarx` decimal(15,2) DEFAULT NULL,
+  `isrof` decimal(15,2) DEFAULT NULL,
+  `sof_foyda` decimal(15,2) DEFAULT NULL,
   `holat` enum('ochiq','yopiq') COLLATE utf8mb4_unicode_ci DEFAULT 'ochiq',
   `ochildi` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `yopildi` timestamp NULL DEFAULT NULL,
@@ -928,9 +966,11 @@ CREATE TABLE IF NOT EXISTS `im_sotuvchi_order` (
   `olib_ketish` tinyint(1) NOT NULL DEFAULT '0',
   `status` varchar(50) DEFAULT 'kutilmoqda',
   `izoh` text,
+  `client_token` varchar(40) DEFAULT NULL COMMENT 'Brauzer bergan bir martalik kalit ÔÇö takroriy yuborishdan himoya',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_client_token` (`client_token`),
   KEY `idx_status_filial` (`status`,`filial_id`),
   KEY `idx_sotuvchi` (`sotuvchi_id`),
   KEY `idx_stol` (`stol_id`)
@@ -1144,7 +1184,7 @@ CREATE TABLE IF NOT EXISTS `im_vozvratlar` (
   `kassir_id` int(11) DEFAULT NULL,
   `sana` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `sotuv_item_id` int(11) DEFAULT NULL,
-  `tannarx` decimal(20,6) DEFAULT '0.000000',
+  `tannarx` decimal(20,6) DEFAULT '0.000000' COMMENT 'JAMI qaytarilgan tannarx (birlik EMAS): birlik = tannarx / soni',
   PRIMARY KEY (`id`),
   KEY `sotuv_id` (`sotuv_id`),
   KEY `mahsulot_id` (`mahsulot_id`)
@@ -1251,7 +1291,7 @@ INSERT INTO `im_fifo_meta` (`name`, `value`) VALUES
 -- ------------------------------------------------------------
 -- Boshlang'ich ma'lumotlar: im_zonalar
 -- ------------------------------------------------------------
-INSERT INTO `im_zonalar` (`id`, `filial_id`, `nomi`, `rang`, `icon`, `tartib`, `status`) VALUES
+INSERT INTO `im_zonalar` (`id`, `filial_id`, `nomi`, `rang`, `ikonka`, `tartib`, `status`) VALUES
 (1, 1, 'VIP', '#14b8a6', 'bi-grid-3x3-gap-fill', 1, 1),
 (2, 1, 'ZAL', '#0f766e', 'bi-grid-3x3-gap-fill', 2, 1);
 
@@ -1317,7 +1357,7 @@ INSERT INTO `im_xodimlar` (`ism`, `login`, `parol`, `rol`, `telefon`, `oylik`, `
 -- ------------------------------------------------------------
 -- Boshlang'ich ma'lumotlar: im_valyuta_kurs
 -- ------------------------------------------------------------
-INSERT INTO `im_valyuta_kurs` (`sana`, `kurs`, `usul`, `status`) VALUES
+INSERT INTO `im_valyuta_kurs` (`sana`, `usd_kurs`, `manba`, `tasdiqlandi`) VALUES
 (CURDATE(), 12000.00, 'qolda', 1);
 
 SET foreign_key_checks = 1;

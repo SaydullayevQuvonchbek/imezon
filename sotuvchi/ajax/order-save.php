@@ -55,7 +55,85 @@ function write_item_log($db, $xodim_id, $filial_id, $order_id, $item_id, $mahsul
 }
 
 // ─────────────────────────────────────────────────────────
+// YORDAMCHI: mahsulot narxini SERVERDA aniqlash
+// ---------------------------------------------------------
+// Ilgari narx brauzerdan kelgani uchun hisob-fakturaga to'g'ridan-to'g'ri
+// tushardi: devtools bilan "narx":1 yuborilsa 50 000 so'mlik taom 1 so'mga
+// yozilardi (kassa POS aynan shu narxni oladi, im_order_item_log esa faqat
+// miqdorni yozadi — ya'ni tekshiruvda ham bilinmasdi). Endi narx har doim
+// bazadan olinadi:
+//   - alohida qator → filial sotuv narxi (bo'lmasa umumiy narx), miqdor
+//                     ulgurji chegarasidan oshsa — ulgurji narxi;
+//   - set qatori    → set narxi komponentlar orasida PROPORSIONAL
+//                     taqsimlanadi. Formula sotuvchi/index.php dagi
+//                     addSetToCart() bilan bir xil, shuning uchun
+//                     ofitsant ko'rgan jami server hisobiga mos tushadi.
+// Qaytadi: ['asos' => bazadagi joriy narx, 'ulg' => ulgurji narxi yoki null]
+//   yoki null — mahsulot/set topilmadi.
+// DIQQAT: chaqiruvchi MAVJUD qatorda 'asos' o'rniga qatorda saqlangan
+// narxni ishlatadi (mijozga berilgan oldindan chek o'zgarib ketmasin);
+// 'ulg' esa har doim joriy — ofitsant ekranidagi effN() bilan bir xil.
+// ─────────────────────────────────────────────────────────
+function im_sotuvchi_narx($db, $filial_id, $mahsulot_id, $soni, $set_id = 0)
+{
+    $filial_id   = (int)$filial_id;
+    $mahsulot_id = (int)$mahsulot_id;
+    $set_id      = (int)$set_id;
+
+    if ($set_id > 0) {
+        $set = $db->row("SELECT narxi FROM im_setlar
+                         WHERE id=$set_id AND filial_id=$filial_id AND aktiv=1");
+        if (!$set) return null;
+        $set_items = $db->rows(
+            "SELECT si.mahsulot_id, si.soni,
+                    COALESCE(fq.sotuv_narxi, n.sotish_narxi, 0) AS narx
+             FROM im_set_items si
+             LEFT JOIN im_narxlar n         ON n.mahsulot_id  = si.mahsulot_id
+             LEFT JOIN im_filial_qoldiq fq  ON fq.mahsulot_id = si.mahsulot_id
+                                           AND fq.filial_id   = $filial_id
+             WHERE si.set_id=$set_id"
+        );
+        if (!$set_items) return null;
+        $asl = 0.0;
+        foreach ($set_items as $si) $asl += (float)$si['narx'] * (float)$si['soni'];
+        foreach ($set_items as $si) {
+            if ((int)$si['mahsulot_id'] !== $mahsulot_id) continue;
+            // Set qatoriga ulgurji narx QO'LLANILMAYDI (addSetToCart ham
+            // ulg_min:0 qo'yadi) — aks holda set chegirmasi buziladi.
+            return ['asos' => $asl > 0
+                        ? round((float)$si['narx'] * ((float)$set['narxi'] / $asl))
+                        : round((float)$set['narxi'] / count($set_items)),
+                    'ulg'  => null];
+        }
+        return null;   // mahsulot bu setning tarkibida yo'q
+    }
+
+    $r = $db->row(
+        "SELECT COALESCE(fq.sotuv_narxi, n.sotish_narxi, 0) AS narx,
+                COALESCE(nu.min_soni, 0)      AS ulg_min,
+                COALESCE(nu.ulgurji_narxi, 0) AS ulg_narx
+         FROM im_mahsulotlar m
+         LEFT JOIN im_filial_qoldiq fq ON fq.mahsulot_id=m.id AND fq.filial_id=$filial_id
+         LEFT JOIN im_narxlar n        ON n.mahsulot_id=m.id
+         LEFT JOIN im_narx_ulgurji nu  ON nu.mahsulot_id=m.id AND nu.aktiv=1
+         WHERE m.id=$mahsulot_id LIMIT 1"
+    );
+    if (!$r) return null;
+
+    $ulg = null;
+    if ((float)$r['ulg_min'] > 0 && (float)$soni >= (float)$r['ulg_min'] && (float)$r['ulg_narx'] > 0) {
+        $ulg = (float)$r['ulg_narx'];
+    }
+    return ['asos' => (float)$r['narx'], 'ulg' => $ulg];
+}
+
+// ─────────────────────────────────────────────────────────
 // YORDAMCHI: items massivini tekshirish va status aniqlash
+// ---------------------------------------------------------
+// DIQQAT: $it['locked_soni'] bu yerga BAZADAN to'ldirilgan holda keladi
+// (pastdagi tranzaksiya blokiga qarang) — brauzer qiymatiga ishonilmaydi.
+// Shuning uchun funksiya faqat tranzaksiya ichidan, order qatorlari
+// qulflangandan keyin chaqiriladi va xatoni exception bilan beradi.
 // ─────────────────────────────────────────────────────────
 function check_items_kitchen($db, $items)
 {
@@ -63,15 +141,38 @@ function check_items_kitchen($db, $items)
         $mid = (int) ($it['mahsulot_id'] ?? 0);
         $soni = (float) ($it['soni'] ?? 0);
         $locked = (float) ($it['locked_soni'] ?? 0);
+        // Orderda ALLAQACHON turgan miqdor (qulflab o'qilgan). Retsept
+        // sharti faqat shundan ORTIQ qo'shilayotgan qism uchun tekshiriladi.
+        $bor    = max($locked, (float) ($it['db_soni'] ?? 0));
         if ($mid && $soni > 0) {
-            $mah = $db->row("SELECT nomi, COALESCE(sotuv_qadami,1) AS qadam FROM im_mahsulotlar WHERE id=$mid");
+            $mah = $db->row("SELECT nomi, COALESCE(sotuv_qadami,1) AS qadam,
+                                    COALESCE(oshpaz_kerak,0) AS ok, COALESCE(qozon_rejim,0) AS qr
+                             FROM im_mahsulotlar WHERE id=$mid");
             $qadam = max(0.001, (float)($mah['qadam'] ?? 1));
             if (abs(($soni / $qadam) - round($soni / $qadam)) > 0.0001) {
-                im_json('error', "«{$mah['nomi']}» miqdori {$qadam} qadam bilan kiritilishi kerak");
+                throw new RuntimeException("«{$mah['nomi']}» miqdori {$qadam} qadam bilan kiritilishi kerak");
+            }
+            // Oshxona taomi (a-la-carte, qozon emas) faol retseptsiz bo'lsa —
+            // oshpaz qabulida xomashyo yechilmaydi, kassada esa "FIFO tannarxi
+            // topilmadi" bilan chek yopilmaydi (taom allaqachon yeb bo'lingan
+            // bo'ladi). Xatoni ENG BOSHIDA — buyurtma saqlashda beramiz.
+            // Orderda allaqachon turgan qism ($bor) uchun tekshirilmaydi: admin
+            // retseptni keyin o'chirib qo'ysa ham ochiq stolni tahrirlash (hatto
+            // shu taomni o'chirish yoki yoniga suv qo'shish) mumkin bo'lib qolsin.
+            if ((int)($mah['ok'] ?? 0) === 1 && (int)($mah['qr'] ?? 0) === 0 && $soni > $bor) {
+                $retsept_bor = $db->val(
+                    "SELECT id FROM im_retseptlar
+                     WHERE mahsulot_id=$mid AND tur='ishlab_chiqarish' AND status=1 LIMIT 1"
+                );
+                if (!$retsept_bor) {
+                    throw new RuntimeException("«{$mah['nomi']}» — oshxona taomi, lekin faol retsepti yo'q. "
+                        . "Admin «Retseptlar» bo'limida retsept kiritmaguncha buyurtmaga qo'shib bo'lmaydi.");
+                }
             }
         }
         if ($soni < $locked) {
-            im_json('error', "Oshpazda pishirilayotgan miqdordan kamaytirish mumkin emas!");
+            throw new RuntimeException("Oshpazda pishirilayotgan miqdordan kamaytirish mumkin emas"
+                . ($locked > 0 ? " (oshpazga {$locked} ta ketgan)" : '') . "!");
         }
     }
     foreach ($items as $it) {
@@ -117,6 +218,16 @@ if ($action === 'hold' || $action === 'create') {
     $stol_id = (int) ($_POST['stol_id'] ?? 0);
     $olib_ketish = !empty($_POST['olib_ketish']) ? 1 : 0;
 
+    // Bir martalik kalit: tarmoq uzilib javob yo'qolsa ofitsant "Pauza" ni
+    // qayta bosadi va AYNAN shu token bilan keladi — yangi order ochilmaydi.
+    // Faqat harf/raqam qoldiriladi, shuning uchun SQL ga xavfsiz tushadi.
+    $client_token = substr(preg_replace('/[^A-Za-z0-9]/', '', (string)($_POST['client_token'] ?? '')), 0, 40);
+    // Ofitsant stolni ochgan paytdagi qatorlar "barmoq izi":
+    //   "mahsulot_id:set_id:soni" lar saralangan holda, "|" bilan ulangan.
+    // Faqat solishtirish uchun ishlatiladi, SQL ga tushmaydi. Bo'sh bo'lsa
+    // tekshiruv o'tkazib yuboriladi (eski keshlangan JS bilan ham ishlasin).
+    $base_sig = substr(preg_replace('/[^0-9:.|]/', '', (string)($_POST['base_sig'] ?? '')), 0, 20000);
+
     if (empty($items))
         im_json('error', 'Savatcha bo\'sh!');
     if (!$mijoz_ism)
@@ -154,16 +265,33 @@ if ($action === 'hold' || $action === 'create') {
 
     $stol_id_sql = $stol_id ?: 'NULL';
 
-    $has_new_kitchen = check_items_kitchen($db, $items);
-
-    // Status aniqlash
-    if ($action === 'hold') {
-        $status = $has_new_kitchen ? 'oshpazda' : 'stol_band';
-    } else {
-        $status = $has_new_kitchen ? 'oshpazda' : 'tasdiqlandi';
+    // ── IDEMPOTENTLIK ──────────────────────────────────────
+    // Javob yo'qolgan bo'lsa ofitsant "Pauza" ni qayta bosadi: shu token
+    // bilan yaratilgan order allaqachon bo'lsa, yangisini ochmay o'shani
+    // tahrirlaymiz. Aks holda bitta stolda ikkita bir xil "olib ketish"
+    // orderi paydo bo'lar va qoldiq ikki marta band qilinardi.
+    // Qidiruv ataylab tranzaksiyadan OLDIN: REPEATABLE READ da tranzaksiya
+    // ichidagi birinchi QULFSIZ o'qish snapshotni qotirib qo'yadi, keyingi
+    // qulflar esa uni yangilamaydi. Haqiqiy poyga (ikki so'rov ayni paytda)
+    // client_token ustidagi UNIQUE indeks bilan to'xtatiladi.
+    // Token global unikal, shuning uchun filial sharti qo'yilmaydi — begona
+    // filial orderi pastdagi "AND filial_id=$filial_id" da rad etiladi.
+    $token_orderi = false;
+    if ($order_id <= 0 && $client_token !== '') {
+        $dup = $db->row("SELECT id FROM im_sotuvchi_order
+                         WHERE client_token='$client_token' LIMIT 1");
+        if ($dup) { $order_id = (int)$dup['id']; $token_orderi = true; }
     }
 
+    // ══ TRANZAKSIYA ═══════════════════════════════════════
+    // Butun blok try ichida (chekinish ataylab o'zgartirilmadi — diff
+    // kichik qolsin). Deadlock (errno 1213) yoki lock timeout (1205)
+    // Cyber::q() da EXCEPTION bo'lib otiladi; ilgari u tutilmagani uchun
+    // PHP fatal berar, javob JSON emas HTML bo'lar va ofitsant "Tarmoq
+    // xatosi" ni ko'rardi — "qaytadan bosing" degan aniq xabar esa yetib
+    // bormasdi. Tranzaksiya ham faqat ulanish yopilganda qaytarilardi.
     $db->begin();
+    try {
 
     // Bitta stolga oid barcha ochish/yopish amallari shu stol qatori orqali
     // ketma-ketlashtiriladi. Checkout va bekor qilish endpointlari ham aynan
@@ -178,16 +306,12 @@ if ($action === 'hold' || $action === 'create') {
             im_json('error', 'Stol topilmadi yoki faol emas');
         }
     }
-    // Checkout ham qoldiqni orderdan oldin qulflaydi. Bir xil lock tartibi
-    // order-save ↔ checkout o'rtasidagi deadlock ehtimolini yopadi.
-    $db->rows(
-        "SELECT mahsulot_id FROM im_filial_qoldiq
-         WHERE filial_id=$filial_id ORDER BY mahsulot_id FOR UPDATE"
-    );
+    $old      = null;
+    $db_items = [];   // "mahsulot_id:set_id" => ['soni'=>..., 'tayyor'=>...]
 
     if ($order_id > 0) {
         $old = $db->row(
-            "SELECT id, status, stol_id, olib_ketish
+            "SELECT id, status, stol_id, olib_ketish, updated_at
              FROM im_sotuvchi_order WHERE id=$order_id AND filial_id=$filial_id FOR UPDATE"
         );
         if (!$old) {
@@ -195,11 +319,125 @@ if ($action === 'hold' || $action === 'create') {
             im_json('error', 'Order topilmadi');
         }
         $locked_stol = $old['stol_id'] !== null ? (int)$old['stol_id'] : 0;
-        if (!im_order_kontekst_mos($locked_stol, $old['olib_ketish'], $stol_id, $olib_ketish)
-            || !im_order_tahrirlanadi($old['status'])) {
+        if (!im_order_tahrirlanadi($old['status'])) {
             $db->rollback();
-            im_json('error', "Order boshqa qurilmada o'zgargan yoki kassaga yuborilgan");
+            if ($token_orderi) {
+                // TAKRORIY YUBORISH: birinchi so'rov muvaffaqiyatli bo'lgan
+                // (javob yo'lda yo'qolgan), order allaqachon kassada/oshpazda.
+                // Xato berish noto'g'ri bo'lardi — ofitsant "yuborilmadi" deb
+                // o'ylab, uchinchi marta bosaverardi.
+                im_json('ok', 'Buyurtma allaqachon yuborilgan',
+                        ['order_id' => $order_id, 'status' => $old['status']]);
+            }
+            im_json('error', "Bu order kassaga yuborilgan yoki yopilgan — tahrirlash mumkin emas");
         }
+        if (!im_order_kontekst_mos($locked_stol, $old['olib_ketish'], $stol_id, $olib_ketish)) {
+            $db->rollback();
+            im_json('error', "Order boshqa stolga yoki boshqa turga ko'chirilmaydi");
+        }
+
+        // Order qatorlari — QULFLAB o'qiymiz. "Oshpazga ketgan miqdor"
+        // (tayyorlandi_soni) ayni shu yerdan olinadi; brauzer yuborgan
+        // locked_soni ga ishonib bo'lmaydi (pastga qarang).
+        foreach ($db->rows(
+            "SELECT id, mahsulot_id, COALESCE(set_id,0) AS sid, soni, rezerv_soni, tayyorlandi_soni
+             FROM im_sotuvchi_order_item WHERE order_id=$order_id
+             ORDER BY mahsulot_id, sid FOR UPDATE") as $lr) {
+            $k_db = (int)$lr['mahsulot_id'] . ':' . (int)$lr['sid'];
+            if (isset($db_items[$k_db])) {
+                // Nazariy jihatdan bo'lmasligi kerak (upsert kaliti shu),
+                // lekin bo'lib qolsa rezerv/tayyor YIG'ILADI — aks holda
+                // qator o'chirilganda band qilingan qoldiq osilib qolardi.
+                $db_items[$k_db]['rezerv'] += (float)$lr['rezerv_soni'];
+                $db_items[$k_db]['tayyor'] += (float)$lr['tayyorlandi_soni'];
+                $db_items[$k_db]['soni']    = (float)$lr['soni'];
+                continue;
+            }
+            $db_items[$k_db] = [
+                'id'     => (int)$lr['id'],
+                'mid'    => (int)$lr['mahsulot_id'],
+                'sid'    => (int)$lr['sid'],
+                'soni'   => (float)$lr['soni'],
+                'rezerv' => (float)$lr['rezerv_soni'],
+                'tayyor' => (float)$lr['tayyorlandi_soni'],
+            ];
+        }
+    }
+
+    // ── QULF TARTIBI: stol qatori → order qatori → order qatorlari → MAHSULOTLAR ──
+    // Mahsulot qulflari hujjat qulflaridan KEYIN olinadi (checkout ham shunday) —
+    // aks holda kassa mahsulotni ushlab order qatorini, ofitsant esa order
+    // qatorini ushlab mahsulotni kutib deadlock bo'lardi. Butun filial emas,
+    // faqat tegiladigan mahsulotlar: yuborilgan qatorlar + orderda ALLAQACHON
+    // bor qatorlar (ular o'chirilsa rezerv qaytariladi) + ularning
+    // retsept/avto-maydalash bog'liqliklari.
+    //
+    // MUHIM: bu blok pastdagi HAR QANDAY qulfsiz o'qishdan OLDIN turishi shart.
+    // REPEATABLE READ da tranzaksiyaning birinchi qulfsiz SELECT'i snapshotni
+    // qotiradi va keyingi qulflar uni yangilamaydi — ya'ni qulf ro'yxati
+    // (im_qulf_mahsulotlari ichidagi avto-maydalash o'qishlari) eski
+    // ma'lumotdan tuzilib, kerakli mahsulot qulfsiz qolib ketishi mumkin edi.
+    $lock_ids = [];
+    foreach ($items as $it_lock) {
+        $mid_lock = (int)($it_lock['mahsulot_id'] ?? 0);
+        if ($mid_lock > 0) $lock_ids[] = $mid_lock;
+    }
+    // Orderda ALLAQACHON bor qatorlar yuqorida qulflab o'qilgan ($db_items).
+    foreach ($db_items as $row_lock) $lock_ids[] = (int)$row_lock['mid'];
+    im_qulfla_mahsulotlar($db, $filial_id, $lock_ids);
+
+    // ── locked_soni ni BAZADAN to'ldiramiz ─────────────────
+    // Ilgari u $_POST dan olinardi. Natijada: ofitsant stolni ochib turgan
+    // paytda oshpaz "Qabul qildim" bossa (xomashyo 5 porsiyaga sarflanadi),
+    // brauzerdagi eski locked_soni=0 bo'lgani uchun ofitsant miqdorni 1 ga
+    // tushira olardi — xomashyo yo'qolar, mijozga 1 ta yozilardi.
+    foreach ($items as &$it_srv) {
+        $k_srv = (int)($it_srv['mahsulot_id'] ?? 0) . ':' . (int)($it_srv['set_id'] ?? 0);
+        $it_srv['locked_soni'] = isset($db_items[$k_srv]) ? $db_items[$k_srv]['tayyor'] : 0.0;
+        $it_srv['db_soni']     = isset($db_items[$k_srv]) ? $db_items[$k_srv]['soni']   : 0.0;
+    }
+    unset($it_srv);
+
+    // ── Boshqa qurilma o'zgartirib qo'ygan bo'lsa ──────────
+    // Kassa POS ham (dukon/pos.php → openStolEdit) shu orderni tahrirlaydi.
+    // Ikkovi bir vaqtda ochib tursa, keyin saqlagani birinchisi qo'shgan
+    // qatorlarni indamay o'chirib yuborardi.
+    // Solishtirish ORDER QATORLARI bo'yicha (order.updated_at bo'yicha emas):
+    // oshpaz "Qabul qildim" bosishi ham updated_at ni o'zgartiradi, lekin
+    // qatorlarga tegmaydi — bunday holda ofitsantga to'sqinlik qilmaymiz.
+    // Va HAR QANDAY farqni ham bloklamaymiz: faqat YO'QOTISH bo'ladiganini —
+    // qator o'chirilsa yoki miqdori kamaysa. Qo'shish to'siqsiz o'tadi.
+    $srv_parts = [];
+    foreach ($db_items as $k_sig => $r_sig) {
+        $srv_parts[] = $k_sig . ':' . number_format($r_sig['soni'], 3, '.', '');
+    }
+    sort($srv_parts);
+    $srv_sig = implode('|', $srv_parts);
+
+    if ($old !== null && $base_sig !== '' && $base_sig !== $srv_sig) {
+        $yuborilgan = [];
+        foreach ($items as $it_chk) {
+            $yuborilgan[(int)($it_chk['mahsulot_id'] ?? 0) . ':' . (int)($it_chk['set_id'] ?? 0)]
+                = (float)($it_chk['soni'] ?? 0);
+        }
+        foreach ($db_items as $k_db => $row_db) {
+            if (!isset($yuborilgan[$k_db]) || $yuborilgan[$k_db] < $row_db['soni'] - 0.0001) {
+                throw new RuntimeException("Bu buyurtmani boshqa qurilma (kassa yoki boshqa "
+                    . "ofitsant) o'zgartirdi. Stolni yopib qaytadan oching — aks holda "
+                    . "u qo'shgan qatorlar yo'qoladi.");
+            }
+        }
+    }
+
+    // Status — endi ISHONCHLI locked_soni asosida.
+    $has_new_kitchen = check_items_kitchen($db, $items);
+    if ($action === 'hold') {
+        $status = $has_new_kitchen ? 'oshpazda' : 'stol_band';
+    } else {
+        $status = $has_new_kitchen ? 'oshpazda' : 'tasdiqlandi';
+    }
+
+    if ($old !== null) {
 
         // ── 'pishirilmoqda' — oshpaz qabul qilgan, taom tayyorlanmoqda ──
         if ($old['status'] === 'pishirilmoqda') {
@@ -240,10 +478,23 @@ if ($action === 'hold' || $action === 'create') {
                 im_json('error', $create_error);
             }
         }
-        $order_id = $db->insert(
-            "INSERT INTO im_sotuvchi_order (sotuvchi_id, filial_id, mijoz_ism, stol_id, olib_ketish, izoh, status)
-             VALUES ($sotuvchi_id, $filial_id, '$mijoz_ism', $stol_id_sql, $olib_ketish, '$izoh', '$status')"
-        );
+        try {
+            $order_id = $db->insert(
+                "INSERT INTO im_sotuvchi_order
+                    (sotuvchi_id, filial_id, mijoz_ism, stol_id, olib_ketish, izoh, status, client_token)
+                 VALUES ($sotuvchi_id, $filial_id, '$mijoz_ism', $stol_id_sql, $olib_ketish, '$izoh', '$status',
+                         " . ($client_token !== '' ? "'$client_token'" : 'NULL') . ")"
+            );
+        } catch (Throwable $e_ins) {
+            // UNIQUE(client_token): AYNI paytda kelgan ikkinchi so'rov.
+            // Birinchisi hali commit qilmagan bo'lishi mumkin, shuning uchun
+            // uni qidirib o'tirmaymiz — ofitsantga tushunarli javob beramiz.
+            if ($client_token !== '' && stripos($e_ins->getMessage(), 'client_token') !== false) {
+                throw new RuntimeException("Buyurtma shu daqiqada saqlanmoqda — "
+                    . "bir soniyadan keyin stolni qayta oching.");
+            }
+            throw $e_ins;
+        }
         if (!$order_id) {
             $db->rollback();
             im_json('error', 'Order yaratishda xato');
@@ -257,8 +508,6 @@ if ($action === 'hold' || $action === 'create') {
     foreach ($items as $item) {
         $mid = (int) ($item['mahsulot_id'] ?? 0);
         $soni = (float) ($item['soni'] ?? 0);
-        $narx = (float) ($item['narx'] ?? 0);
-        $locked = (float) ($item['locked_soni'] ?? 0);
         $set_id     = (int) ($item['set_id'] ?? 0);
         $set_id_sql = $set_id ?: 'NULL';
         // Olib ketish — alohida order: uning HAMMA qatori qadoqlanadi va
@@ -272,17 +521,50 @@ if ($action === 'hold' || $action === 'create') {
 
         // Mahsulot nomini olish
         $prod_nomi = (string) $db->val("SELECT nomi FROM im_mahsulotlar WHERE id=$mid");
+
         // Rezerv faqat tayyor vitrinali SKU uchun yuritiladi. Retseptli yoki
         // oshxona mahsulotining xomashyosi keyingi biznes bosqichida yechiladi.
         $rezervlanadi = im_vitrinali($db, $mid);
         $yangi_rezerv = $rezervlanadi ? $soni : 0.0;
 
-        $exist_row = $db->row("SELECT id, soni, rezerv_soni FROM im_sotuvchi_order_item
-                               WHERE order_id=$order_id AND mahsulot_id=$mid AND COALESCE(set_id,0)=$set_id");
+        // FOR UPDATE — rezerv farqi shu qiymatdan hisoblanadi; REPEATABLE READ da
+        // oddiy o'qish eski snapshotni berib, ikki qurilma bir order qatorini
+        // tahrirlaganda rezervni ikki marta band qilib qo'yardi.
+        $exist_row = $db->row("SELECT id, soni, narx, rezerv_soni, tayyorlandi_soni FROM im_sotuvchi_order_item
+                               WHERE order_id=$order_id AND mahsulot_id=$mid AND COALESCE(set_id,0)=$set_id FOR UPDATE");
+
+        // ── NARX: brauzerdan emas, bazadan ────────────────
+        //  • MAVJUD qator → qatorda SAQLANGAN narx o'zgarmaydi. Kassir kun
+        //    o'rtasida vitrina narxini ko'tarsa ham mijozga allaqachon
+        //    aytilgan narx bo'yicha hisob chiqadi (oldindan chek bilan mos).
+        //  • YANGI qator  → bazadagi joriy narx.
+        //  • Ulgurji chegarasi kesib o'tilsa — ikkalasida ham ulgurji narxi.
+        //    Ofitsant ekranidagi effN() ayni shunday hisoblaydi.
+        //  • 0 narx ruxsat etiladi (bepul non/souz kabi qo'shimchalar).
+        $narx_info = im_sotuvchi_narx($db, $filial_id, $mid, $soni, $set_id);
+        $eski_narx = $exist_row ? (float) $exist_row['narx'] : 0.0;
+        $narx      = $eski_narx > 0 ? $eski_narx : ($narx_info ? (float) $narx_info['asos'] : null);
+        if ($narx_info && $narx_info['ulg'] !== null) $narx = (float) $narx_info['ulg'];
+        if ($narx === null) {
+            throw new RuntimeException("«{$prod_nomi}» narxini aniqlab bo'lmadi — "
+                . "mahsulot yoki set sozlamasini tekshiring (Sklad → Mahsulotlar).");
+        }
+        $narx = max(0.0, (float) $narx);
 
         if ($exist_row) {
             $item_id = (int) $exist_row['id'];
             $eski_soni = (float) $exist_row['soni'];
+
+            // Ikkinchi to'siq (check_items_kitchen dan keyin): qator qulfi
+            // ostidagi ENG SO'NGGI qiymat. Oshpazga ketgan miqdordan pastga
+            // tushirish xomashyoni yo'qotadi va oshpaz kartasini "o'lik"
+            // qoldiradi (order-qabul.php i.soni > i.tayyorlandi_soni bo'yicha
+            // ishlaydi), shuning uchun bu yerda ham qat'iy rad etamiz.
+            $tayyor_db = (float) $exist_row['tayyorlandi_soni'];
+            if ($soni < $tayyor_db - 0.0001) {
+                throw new RuntimeException("«{$prod_nomi}»: oshpazga allaqachon {$tayyor_db} ta "
+                    . "ketgan — undan kamaytirib bo'lmaydi.");
+            }
 
             // REZERV: faqat FARQ qadar band qilamiz (yoki qaytaramiz).
             // Ofitsant 2 tadan 3 taga oshirsa — 1 ta band qilinadi.
@@ -321,50 +603,43 @@ if ($action === 'hold' || $action === 'create') {
         }
     }
 
+    // Hech bir qator o'tmagan bo'lsa (hammasining soni <= 0) — bu saqlash
+    // "hech narsa qilmaydi", lekin order holatini o'zgartirib yuborardi va
+    // ofitsantga "saqlandi" deb ko'rsatardi. Ochiq xato beramiz.
+    if (empty($passed_keys)) {
+        throw new RuntimeException("Savatchada haqiqiy mahsulot yo'q — miqdorlarni tekshiring.");
+    }
+
     // O'chirilgan qatorlar — kalit (mahsulot_id:set_id) bo'yicha solishtiramiz,
     // shunda setdagi mahsulot olib tashlansa ham, o'sha mahsulotning
     // alohida (à la carte) qatori tegilmaydi va aksincha.
-    if (!empty($passed_keys)) {
-        $keys_str = implode(',', array_map(
-            fn($k) => "'" . mysqli_real_escape_string($link, $k) . "'",
-            $passed_keys
-        ));
-        $key_expr = "CONCAT(i.mahsulot_id, ':', COALESCE(i.set_id,0))";
-        $deleted_rows = $db->rows(
-            "SELECT i.id, i.mahsulot_id, i.soni, i.rezerv_soni, m.nomi
-             FROM im_sotuvchi_order_item i
-             JOIN im_mahsulotlar m ON m.id = i.mahsulot_id
-             WHERE i.order_id=$order_id
-               AND $key_expr NOT IN ($keys_str)
-               AND i.tayyorlandi_soni = 0"
-        );
-        foreach ($deleted_rows as $dr) {
-            // REZERVNI QAYTARISH: qator buyurtmadan olib tashlandi
-            im_rezerv($db, $filial_id, (int)$dr['mahsulot_id'], -(float)$dr['rezerv_soni']);
-            write_item_log(
-                $db,
-                $sotuvchi_id,
-                $filial_id,
-                $order_id,
-                (int) $dr['id'],
-                (int) $dr['mahsulot_id'],
-                $dr['nomi'],
-                'ochirildi',
-                (float) $dr['soni'],
-                0
-            );
-        }
+    // Manba — $db_items: u yuqorida FOR UPDATE bilan o'qilgan, ya'ni qulf
+    // ostidagi JORIY holat. (REPEATABLE READ da shu joydagi oddiy SELECT
+    // tranzaksiyaning eski snapshotini qaytarishi mumkin edi.)
+    $qolgan = array_flip($passed_keys);
+    foreach ($db_items as $k_old => $dr) {
+        if (isset($qolgan[$k_old])) continue;
+        if ($dr['tayyor'] > 0.0001) continue;   // oshpazga ketgan qator o'chmaydi
+
+        // REZERVNI QAYTARISH: qator buyurtmadan olib tashlandi
+        im_rezerv($db, $filial_id, $dr['mid'], -$dr['rezerv']);
+        $nomi_del = (string) $db->val("SELECT nomi FROM im_mahsulotlar WHERE id={$dr['mid']}");
+        write_item_log($db, $sotuvchi_id, $filial_id, $order_id,
+                       $dr['id'], $dr['mid'], $nomi_del, 'ochirildi', $dr['soni'], 0);
+        // Kalit bo'yicha o'chiramiz (id bo'yicha emas): bir kalitda
+        // takroriy qator qolib ketgan bo'lsa ham hammasi ketadi.
         $db->q("DELETE FROM im_sotuvchi_order_item
-                WHERE order_id=$order_id
-                  AND CONCAT(mahsulot_id, ':', COALESCE(set_id,0)) NOT IN ($keys_str)
-                  AND tayyorlandi_soni = 0");
+                WHERE order_id=$order_id AND mahsulot_id={$dr['mid']}
+                  AND COALESCE(set_id,0)={$dr['sid']} AND tayyorlandi_soni = 0");
     }
 
-    if ($db->error()) {
-        $db->rollback();
-        im_json('error', 'DB xatosi: ' . $db->error());
-    }
     $db->commit();
+
+    } catch (Throwable $e) {
+        // Deadlock/lock timeout — Cyber::q() tushunarli matn bilan otadi.
+        $db->rollback();
+        im_json('error', $e->getMessage());
+    }
 
     // Summa hisob va order-log
     $summa = (float) $db->val("SELECT SUM(soni*narx) FROM im_sotuvchi_order_item WHERE order_id=$order_id");

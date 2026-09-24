@@ -27,7 +27,7 @@ if ($q) {
 }
 if ($kat_id) $mah_where .= " AND m.kategoriya_id=$kat_id";
 
-// ── SKLAD qoldiqlari (im_partiya_items.sklad_qoldi) ─────────
+// ── SKLAD qoldiqlari (im_fifo_layers, location_id=0) ────────
 $sklad_rows = [];
 if (!$filtr_fl || $filtr_fl == -1) {
     $sklad_rows = $db->rows(
@@ -325,7 +325,7 @@ $global = $db->rows(
             <th class="text-right">Qoldiq</th>
             <th class="text-right">Tan narxi</th>
             <th class="text-right">Sotuv narxi</th>
-            <th class="text-right">Qiymat</th>
+            <th class="text-right">Qiymat (tan narxda)</th>
           </tr></thead>
           <tbody>
           <?php foreach ($fd['rows'] as $i => $r):
@@ -344,7 +344,9 @@ $global = $db->rows(
             </td>
             <td class="text-right num text-muted"><?= (float)$r['kelish_narxi'] > 0 ? im_money($r['kelish_narxi']).' so\'m' : '—' ?></td>
             <td class="text-right num" style="color:var(--success)"><?= im_money($r['sotuv_n']) ?> so'm</td>
-            <td class="text-right num fw-bold"><?= im_money($r['soni'] * $r['sotuv_n']) ?> so'm</td>
+            <?php /* Qiymat ustuni sarlavhadagi "Tan narxda" bilan bir xil asosda — FIFO tannarx.
+                     Ilgari bu yerda sotuv narxi ko'paytirilardi va bitta jadvalda ikki xil jami chiqardi. */ ?>
+            <td class="text-right num fw-bold"><?= im_money($r['soni'] * $r['kelish_narxi']) ?> so'm</td>
           </tr>
           <?php endforeach; ?>
           </tbody>
@@ -352,9 +354,11 @@ $global = $db->rows(
             <tr>
               <td colspan="3" class="fw-bold">Jami</td>
               <td class="text-right fw-bold"><?= number_format(array_sum(array_column($fd['rows'],'soni'))) ?></td>
-              <td colspan="2"></td>
+              <td colspan="2" class="text-right text-muted fs-xs">
+                Sotuv narxida: <?= im_money(array_sum(array_map(fn($r) => $r['soni'] * $r['sotuv_n'], $fd['rows']))) ?> so'm
+              </td>
               <td class="text-right num fw-bold" style="color:var(--success)">
-                <?= im_money(array_sum(array_map(fn($r) => $r['soni'] * $r['sotuv_n'], $fd['rows']))) ?> so'm
+                <?= im_money(array_sum(array_map(fn($r) => $r['soni'] * $r['kelish_narxi'], $fd['rows']))) ?> so'm
               </td>
             </tr>
           </tfoot>

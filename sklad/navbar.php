@@ -56,6 +56,11 @@ $akt = function ($yol) use ($base) {
       Filialga jo'natish
     </a>
 
+    <a href="<?= $base ?>sklad/inventarizatsiya.php" class="im-nav-item <?= $akt('sklad/inventarizatsiya.php') ?>">
+      <i class="bi bi-clipboard-check-fill"></i>
+      Inventarizatsiya
+    </a>
+
     <a href="<?= $base ?>sklad/barcode-print.php" class="im-nav-item <?= $akt('sklad/barcode-print.php') ?>">
       <i class="bi bi-upc-scan"></i>
       Barcode chop

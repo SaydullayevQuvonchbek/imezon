@@ -171,7 +171,10 @@ function im_qozon_sotuvga_yetkaz($db, $filial_id, $mahsulot_id, $kerak) {
     $filial_id=(int)$filial_id; $mahsulot_id=(int)$mahsulot_id;
     $kerak=(float)im_fifo_number($kerak);
     im_fifo_lock($db,$filial_id,$mahsulot_id);
-    $mavjud=im_fifo_balance($db,$filial_id,$mahsulot_id)['qty'];
+    // Qulflab o'qish shart: pastda qatlam miqdori shu qiymatdan kelib chiqib
+    // oshiriladi. Oddiy o'qish REPEATABLE READ da eski snapshotni berib,
+    // pishirilmagan porsiya "hosil qilib" yuborishi mumkin edi.
+    $mavjud=im_fifo_balance($db,$filial_id,$mahsulot_id,true)['qty'];
     if ($mavjud+0.000001 >= $kerak) return 0.0;
 
     $yetishmaydi=round($kerak-$mavjud,3);
@@ -201,6 +204,12 @@ function im_qozon_sotuvga_yetkaz($db, $filial_id, $mahsulot_id, $kerak) {
         remaining_qty=$remaining_sql,unit_cost=$cost_sql WHERE id=".(int)$layer['id']);
     im_fifo_exec($db,"UPDATE im_filial_qoldiq SET soni=soni+$short_sql
         WHERE filial_id=$filial_id AND mahsulot_id=$mahsulot_id");
+    // Qatlam miqdori harakatsiz o'zgarmasin: 'adjust' yozuvi qozon chiqishi
+    // mo'ljaldan oshganini tushuntiradi (audit/qayta qurish uchun). kind='adjust'
+    // hech qaysi hisobotda 'take'/'return' kabi o'qilmaydi.
+    im_fifo_exec($db,"INSERT INTO im_fifo_movements
+        (layer_id,source,source_id,kind,qty,unit_cost,created_at)
+        VALUES(".(int)$layer['id'].",'qozon',$qid,'adjust',$short_sql,$cost_sql,NOW())");
     im_fifo_cache_price($db,$filial_id,$mahsulot_id);
     return $yetishmaydi;
 }
@@ -255,15 +264,25 @@ function im_qozon_yakuniy_tannarx($db, $qozon_id, $filial_id, $qoldi, $isrofmi) 
     $cost_sql=im_fifo_number($yakuniy,6);
     im_fifo_exec($db,"UPDATE im_fifo_layers SET initial_qty=$actual_sql,
         remaining_qty=$remain_sql,unit_cost=$cost_sql WHERE id=$layer_id");
+    // Yopishdagi haqiqiy chiqishga moslashtirish ham daftarda iz qoldirsin.
+    if (abs($adjust) > 0.0005) {
+        im_fifo_exec($db,"INSERT INTO im_fifo_movements
+            (layer_id,source,source_id,kind,qty,unit_cost,created_at)
+            VALUES($layer_id,'qozon',$qozon_id,'adjust',$adjust_sql,$cost_sql,NOW())");
+    }
 
     if ($isrofmi && $qoldi>0) {
         im_fifo_exec($db,"UPDATE im_fifo_layers SET remaining_qty=0 WHERE id=$layer_id");
         im_fifo_exec($db,"UPDATE im_filial_qoldiq SET soni=soni-$remain_sql
             WHERE filial_id=$filial_id AND mahsulot_id=$mahsulot_id AND soni>=$remain_sql");
         if ($db->affected()!==1) throw new Exception('Qozon qoldig‘ini isrofga yozish uchun qoldiq yetarli emas');
+        // MANBA 'qozon_isrof' — 'qozon' EMAS. Qozon ochilganda xomashyo
+        // im_fifo_take(...,'qozon',$qozon_id) bilan yechiladi; agar isrof ham
+        // shu manbada yozilsa, kelajakdagi im_fifo_reverse('qozon',$id) xomashyo
+        // qaytarishni tayyor mahsulot isrofi bilan aralashtirib yuborardi.
         im_fifo_exec($db,"INSERT INTO im_fifo_movements
             (layer_id,source,source_id,kind,qty,unit_cost,created_at)
-            VALUES($layer_id,'qozon',$qozon_id,'take',$remain_sql,$cost_sql,NOW())");
+            VALUES($layer_id,'qozon_isrof',$qozon_id,'take',$remain_sql,$cost_sql,NOW())");
     }
 
     im_fifo_exec($db,"UPDATE im_osh_qozon SET haqiqiy_porsiya=$actual_sql,

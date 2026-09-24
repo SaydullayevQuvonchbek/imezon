@@ -46,6 +46,15 @@ try {
     $fil=$location ?: 'NULL';
     $id=$db->insert("INSERT INTO im_ishlab_chiqarish (retsept_id,tur,filial_id,soni,mahsulot_id,chiqish_soni,izoh,xodim_id) VALUES ($retsept_id,'$tur',$fil,$soni,$product,$amount,'$note',$im_user_id)");
     if (!$id) throw new Exception('Jarayon yozilmadi: '.$db->error());
+    // Qulflar OLDINDAN, mahsulot id o'sishi bo'yicha: pastda avval barcha
+    // kirishlar (im_fifo_take), keyin barcha chiqishlar (im_fifo_receive)
+    // qulflanardi — kirish id'si chiqish id'sidan katta bo'lsa tartib buzilib,
+    // parallel amallar bilan deadlock chiqishi mumkin edi.
+    $lock_ids = array_map('intval', array_merge(array_keys($inputs), array_keys($outputs)));
+    $lock_ids = array_values(array_unique($lock_ids));
+    sort($lock_ids, SORT_NUMERIC);
+    foreach ($lock_ids as $lid) im_fifo_lock($db, $location, $lid);
+
     $total=0;
     foreach ($inputs as $mid=>$need) {
         $need=round($need,3);

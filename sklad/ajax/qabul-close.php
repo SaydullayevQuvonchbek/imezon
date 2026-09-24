@@ -85,6 +85,9 @@ try {
         $qty = (float)$it['soni'];
         $cost = (float)$it['kelish_narxi'];
         im_fifo_receive($db, $q_filial, $mah_id, $qty, $cost, 'partiya', $partiya_id, $itm_id);
+        // Bu ikki ustun — HUJJAT ma'lumoti: shu qabul qatori qayerga tushgani
+        // (ombor yoki filial). Joriy qoldiq EMAS va boshqa hech qayerda
+        // yangilanmaydi — qoldiq har doim im_fifo_layers dan o'qiladi.
         $warehouseQty = $q_filial === 0 ? $qty : 0;
         $branchQty = $q_filial > 0 ? $qty : 0;
         $db->q("UPDATE im_partiya_items SET sklad_qoldi=$warehouseQty, dukon_qoldi=$branchQty WHERE id=$itm_id");

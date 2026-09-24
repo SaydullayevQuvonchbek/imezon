@@ -385,6 +385,18 @@ async function showDetail(smenaId) {
         <div class="text-muted fs-xs">USD</div><div class="fw-bold text-secondary num">${fmt(d.stats.usd)} $</div>
       </div></div>
   </div>
+  ${d.smena.holat==='yopiq' && d.smena.sof_foyda!==null && d.smena.sof_foyda!==undefined ? `
+  <div class="row g-2 mb-3">
+      <div class="col-6 col-md-4"><div class="im-stat-card p-2 border-start border-warning border-3">
+        <div class="text-muted fs-xs">Tannarx (FIFO)</div><div class="fw-bold num">${fmt(d.smena.tannarx)} so'm</div>
+      </div></div>
+      <div class="col-6 col-md-4"><div class="im-stat-card p-2 border-start border-danger border-3">
+        <div class="text-muted fs-xs">Isrof (qozon + oshxona)</div><div class="fw-bold text-danger num">${fmt(d.smena.isrof)} so'm</div>
+      </div></div>
+      <div class="col-12 col-md-4"><div class="im-stat-card p-2 border-start border-success border-3">
+        <div class="text-muted fs-xs">Sof foyda (maoshsiz)</div><div class="fw-bold text-success num">${fmt(d.smena.sof_foyda)} so'm</div>
+      </div></div>
+  </div>` : ''}
 
   <h6 class="fw-bold mt-4 mb-2"><i class="bi bi-arrow-left-right text-warning"></i> Kirim-chiqimlar</h6>
   <div class="im-table-wrap mb-3">
