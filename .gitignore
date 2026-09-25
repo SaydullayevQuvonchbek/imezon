@@ -1,4 +1,4 @@
-﻿# Environment & Secrets
+# Environment & Secrets
 .env
 .env.*
 !.env.example
@@ -39,3 +39,4 @@ desktop.ini
 !tools/
 tools/*
 !tools/fifo-check.php
+!tools/seed-demo.php
